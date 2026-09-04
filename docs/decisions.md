@@ -1,0 +1,13 @@
+# coja — decisions where the design doc is silent
+
+Each entry: the choice, and why it is the simplest option consistent with [design.md](design.md).
+
+- **Design doc provenance.** `docs/design.md` did not exist in the working tree; two copies existed under `.delta/worktrees/*/coja/docs/`. Adopted the newest (2026-09-04 23:16) because it is the one containing the "Build order" and "Screens and UX flow" sections the build brief references.
+- **Package manager / workspaces:** pnpm workspaces (`server/`, `web/`). The publishable package is `server/` (npm name `coja`); `web/` builds into `server/public/` which is included in the published files.
+- **Server framework:** Hono on `@hono/node-server` (design offers Hono or Fastify; Hono has the smaller surface and streams well).
+- **SQLite:** Node's built-in `node:sqlite` (no native build step for `npx coja`; requires Node ≥ 22.13, declared in `engines`).
+- **Fetched PR refs are namespaced.** `git fetch origin +refs/pull/<n>/head:refs/coja/pull/<n>/head` (and the base branch tip to `refs/coja/pull/<n>/base`). Keeps objects reachable (no GC) without touching the user's branches or FETCH_HEAD semantics.
+- **App-managed clones are bare.** `owner/repo` projects are cloned with `git clone --bare` into the app data dir; a bare repo has no working tree by construction. Credentials come from `gh auth git-credential` configured as the repo-local credential helper, so no token is written to disk.
+- **Diff base is the merge base** (`git merge-base base head`), matching GitHub's own PR diff.
+- **Thread replies post immediately** (`addPullRequestReviewThreadReply` without a pending-review id), as GitHub's "Add single comment". Only new line comments go into the pending review.
+- **Lint/format:** Biome (single tool for both, zero config churn). Unit tests: Vitest.
