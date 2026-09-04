@@ -192,13 +192,7 @@ export interface PullRequestSummary {
   myReviewState: MyReviewState
 }
 
-export type FileChangeType =
-  | 'ADDED'
-  | 'DELETED'
-  | 'MODIFIED'
-  | 'RENAMED'
-  | 'COPIED'
-  | 'CHANGED'
+export type FileChangeType = 'ADDED' | 'DELETED' | 'MODIFIED' | 'RENAMED' | 'COPIED' | 'CHANGED'
 
 export type FileViewedState = 'VIEWED' | 'UNVIEWED' | 'DISMISSED'
 

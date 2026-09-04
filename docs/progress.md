@@ -42,3 +42,13 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 ## Cross-cutting
 - [x] E2E fixture repo `coja-e2e-fixture` with PR #1 (adds, edits, rename, large file) — see e2e-fixture.md
 - [ ] Invariant audit (no worktree/checkout; no shell/write/network tool; no mutation reachable from agent output)
+
+## Resume notes (written 2026-09-04 23:55, before a usage-limit pause)
+
+- Research reports (ground truth for library APIs) live in the session scratchpad: `research-pierre.md`, `research-github.md`, `research-aisdk.md`, `research-infra.md` under
+  `/private/tmp/claude-501/-Users-ayush-porwal-Documents-workspace-coja/afd08bb9-0e4d-4d81-b350-d51ce84dc70e/scratchpad/`.
+- Contracts written and committed: `server/src/shared/api.ts` (wire types + routes), `server/src/forge/forge.ts` (Forge interface), `server/src/routes/http.ts` (error mapping), `server/src/projects/store.ts`, `server/src/db.ts`, `server/src/context.ts`, `web/src/api/client.ts`.
+- Dependencies pre-installed: server `ai@7.0.92 @ai-sdk/openai@4.0.58 @ai-sdk/anthropic@4.0.49 zod@4.5.4 @napi-rs/keyring@2.0.0`; web `@pierre/diffs@1.4.0 @pierre/trees@1.0.0-beta.6 ai @ai-sdk/react zod react-markdown remark-gfm`.
+- Parallel implementation agents dispatched next (each confined to its paths): A git layer (`server/src/git`, `server/src/pr`, `server/src/projects/add.ts`, `routes/projects.ts`, `routes/git.ts`); B GitHub forge (`server/src/forge/*`, `routes/pulls.ts`, `routes/review.ts`); C web shell (`web/src/**` minus `pr/`); D secrets + setup (`server/src/secrets`, `routes/setup.ts`); E PR review screen (`web/src/pr/**`).
+- After agents finish: wire `registerXRoutes` in `server/src/app.ts` + `cli.ts` (createContext, GitHubForge, PrFetcher, secret store), run `pnpm check`, build, start, browser-validate Stages 2–4 against the fixture PR, Opus invariant audit, then Stage 5 (AI panel: server `server/src/ai/**` + `routes/chat.ts`; web `web/src/pr/ai/**`).
+- `OPENAI_API_KEY` is absent in the environment: final AI-panel validation needs a key from the user.

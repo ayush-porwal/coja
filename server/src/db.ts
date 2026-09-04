@@ -38,7 +38,9 @@ export function openDb(file: string): Db {
   const db = new DatabaseSync(file)
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
   db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)')
-  const row = db.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined
+  const row = db.prepare('SELECT version FROM schema_version').get() as
+    | { version: number }
+    | undefined
   let version = row?.version ?? 0
   for (; version < MIGRATIONS.length; version++) {
     db.exec('BEGIN')
