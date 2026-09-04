@@ -1,0 +1,33 @@
+{
+  "name": "coja-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.1",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"pnpm --filter coja dev\" \"pnpm --filter @coja/web dev\"",
+    "build": "pnpm --filter @coja/web build && pnpm --filter coja build",
+    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.12",
+    "@types/node": "22.20.1",
+    "concurrently": "10.0.5",
+    "jsdom": "30.0.1",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

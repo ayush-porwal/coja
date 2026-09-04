@@ -1,0 +1,27 @@
+{
+  "name": "coja",
+  "version": "0.0.1",
+  "description": "Local code review for GitHub pull requests, with an AI sidepanel that helps the human reviewer",
+  "type": "module",
+  "bin": {
+    "coja": "./bin/coja.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "public"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "tsx watch src/cli.ts --no-open",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node bin/coja.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "hono": "4.13.7"
+  }
+}

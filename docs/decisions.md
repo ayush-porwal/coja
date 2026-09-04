@@ -11,3 +11,5 @@ Each entry: the choice, and why it is the simplest option consistent with [desig
 - **Diff base is the merge base** (`git merge-base base head`), matching GitHub's own PR diff.
 - **Thread replies post immediately** (`addPullRequestReviewThreadReply` without a pending-review id), as GitHub's "Add single comment". Only new line comments go into the pending review.
 - **Lint/format:** Biome (single tool for both, zero config churn). Unit tests: Vitest.
+- **Versions pinned at scaffold time (2026-09-04):** TypeScript 5.9 (not 6/7, to stay on the stable line the toolchain agrees on), `@types/node` 22.x to match the `engines` floor, react-router 7, Hono 4 with `@hono/node-server` 2, Vite 8, Vitest 5, Biome 2.5, React 19.
+- **Static serving is hand-rolled** (small mime map + SPA fallback) instead of `serveStatic`, so it works regardless of `process.cwd()` when launched via `npx coja`.

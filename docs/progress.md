@@ -5,10 +5,10 @@ Source of truth: [design.md](design.md). Choices where the design is silent: [de
 Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 
 ## Stage 1 — Scaffold
-- [ ] pnpm monorepo: `server/` (package `coja`, bin) + `web/` (Vite React)
-- [ ] `coja` bin starts server, serves built UI from package, opens browser
-- [ ] typecheck + lint + unit tests wired at root (`pnpm check`)
-- [ ] Validation: build once, `node server/bin/coja.js` serves UI in browser
+- [x] pnpm monorepo: `server/` (package `coja`, bin) + `web/` (Vite React)
+- [x] `coja` bin starts server, serves built UI from package, opens browser
+- [x] typecheck + lint + unit tests wired at root (`pnpm check`)
+- [x] Validation: build once, `node server/bin/coja.js` serves UI in browser (2026-09-04, health + SPA fallback verified in browser)
 
 ## Stage 2 — Git layer + Forge + gh auth
 - [ ] `git` plumbing wrapper (show / ls-tree / grep / diff / log / blame / fetch / merge-base) — no worktree/checkout anywhere
