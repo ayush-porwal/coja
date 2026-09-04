@@ -40,5 +40,5 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 - [ ] Validation: browser with real provider key (BLOCKED until `OPENAI_API_KEY` provided)
 
 ## Cross-cutting
-- [ ] E2E fixture repo `coja-e2e-fixture` with PR (adds, edits, rename, large file)
+- [x] E2E fixture repo `coja-e2e-fixture` with PR #1 (adds, edits, rename, large file) — see e2e-fixture.md
 - [ ] Invariant audit (no worktree/checkout; no shell/write/network tool; no mutation reachable from agent output)
