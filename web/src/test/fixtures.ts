@@ -3,9 +3,10 @@ import type { Project, PullRequestSummary, SetupStatus } from '@coja/shared/api'
 export function setupStatus(overrides: Partial<SetupStatus> = {}): SetupStatus {
   return {
     gh: { ok: true, login: 'octocat', host: 'github.com' },
-    providers: { openai: { configured: false }, anthropic: { configured: false } },
+    customProviders: [],
     secrets: { backend: 'keychain' },
     setupComplete: true,
+    chatgpt: { connected: false },
     ...overrides,
   }
 }
