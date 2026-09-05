@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * `useState` mirrored into `localStorage` (JSON). Reads are validated with
@@ -11,18 +11,21 @@ export function usePersistedState<T>(
   fallback: T,
   isValid: (value: unknown) => value is T,
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const read = (k: string): T => {
-    try {
-      const raw = localStorage.getItem(k)
-      if (raw !== null) {
-        const parsed: unknown = JSON.parse(raw)
-        if (isValid(parsed)) return parsed
+  const read = useCallback(
+    (k: string): T => {
+      try {
+        const raw = localStorage.getItem(k)
+        if (raw !== null) {
+          const parsed: unknown = JSON.parse(raw)
+          if (isValid(parsed)) return parsed
+        }
+      } catch {
+        // unreadable storage: use the default
       }
-    } catch {
-      // unreadable storage: use the default
-    }
-    return fallback
-  }
+      return fallback
+    },
+    [fallback, isValid],
+  )
 
   const [value, setValue] = useState<T>(() => read(key))
   const keyRef = useRef(key)
@@ -40,7 +43,7 @@ export function usePersistedState<T>(
     } catch {
       // unwritable storage: state still works for this session
     }
-  }, [key, value])
+  }, [key, value, read])
 
   return [value, setValue]
 }

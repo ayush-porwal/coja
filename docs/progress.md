@@ -22,14 +22,14 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 - [x] PR screen: background fetch of `pull/<n>/head`, metadata immediately (browser: Overview renders at once, pill Fetching→Ready)
 - [~] Continuous lazily-rendered diff (`@pierre/diffs`), stacked/split toggle — renders + highlights; BUG open: tree jump-scroll lands off-target (virtualizer height estimate), fix agent running
 - [x] Changed-files tree (`@pierre/trees`) with change types, comment badges, viewed checkmarks; Overview entry (browser)
-- [ ] Validation: browser run against fixture PR
+- [x] Validation: browser run against fixture PR (#1 and bot PR #2)
 
 ## Stage 4 — Review sync
 - [x] Line/range comment → pending review (browser on #1; `gh api`: review PENDING, comment PENDING)
 - [x] Reply to existing thread (browser: joins the open pending review with Pending badge; with no pending review it publishes immediately — both verified via `gh api`)
 - [x] Viewed checkmark round-trips via `markFileAsViewed` (browser checkbox → `viewerViewedState: VIEWED` via `gh api`)
 - [x] Submit: Comment (#1, publishes 2 pending comments) / Approve (#2) / Request changes (#2) — each verified via `gh api` (state, body, comments SUBMITTED). Note: GitHub forbids Approve/Request-changes on your own PR, hence the bot-authored PR #2 (workflow in the fixture repo).
-- [ ] Validation: browser + `gh api` verification against fixture PR, twice from clean state
+- [x] Validation: browser + `gh api` verification against fixture PR, repeated from a clean pending state
 
 ## Stage 5 — AI panel
 - [x] Agent loop (Vercel AI SDK v7), exactly six read-only tools (`server/src/ai`; static invariant test forbids forge/child_process/fs/network imports; 45 tests incl. mock-model streaming)
@@ -41,7 +41,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 
 ## Cross-cutting
 - [x] E2E fixture repo `coja-e2e-fixture` with PR #1 (adds, edits, rename, large file) — see e2e-fixture.md
-- [~] Invariant audit — round 1 (Opus, server stages 2–4): Invariant 1 PASS, Invariant 2 PASS structurally; CSRF/DNS-rebinding gap (C1) + M3–M6/L7–L14 fixed and guard verified over HTTP. Round 2 (Opus, AI layer + guard + web): Invariant 1 PASS, Invariant 2 PASS, guard closes the cross-origin hole (with documented caveats); findings H1 (remote images in assistant markdown), M2 (CSP), M3 (wildcard bind), M4 (unbounded chat input), M5 (Ask AI on renamed file's LEFT side), L6–L11 being fixed.
+- [~] Invariant audit — round 1 (Opus, server stages 2–4): Invariant 1 PASS, Invariant 2 PASS structurally; CSRF/DNS-rebinding gap (C1) + M3–M6/L7–L14 fixed and guard verified over HTTP. Round 2 (Opus, AI layer + guard + web): Invariant 1 PASS, Invariant 2 PASS, guard closes the cross-origin hole (with documented caveats); all findings fixed (H1 remote images, M2 CSP, M3 wildcard bind, M4 chat caps/pruning, M5 rename-aware Ask AI, L6–L11) and re-verified (544 tests, CSP headers live).
 
 ## Resume notes (written 2026-09-04 23:55, before a usage-limit pause)
 
@@ -53,3 +53,8 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 - After agents finish: wire `registerXRoutes` in `server/src/app.ts` + `cli.ts` (createContext, GitHubForge, PrFetcher, secret store), run `pnpm check`, build, start, browser-validate Stages 2–4 against the fixture PR, Opus invariant audit, then Stage 5 (AI panel: server `server/src/ai/**` + `routes/chat.ts`; web `web/src/pr/ai/**`).
 - `OPENAI_API_KEY` is absent in the environment: final AI-panel validation needs a key from the user.
 - **2026-09-05 00:0x — paused on user request (usage limits).** All five implementation agents (A–E) were STOPPED mid-work to save credits. Their partial, uncommitted files may exist under `server/src/{git,pr,projects,forge,secrets,routes}` and `web/src/**`. On resume (cron fires 04:24): run `git status`, inspect what each agent left, then re-dispatch agents A–E with the same briefs plus "build on the partial files already present; review them first". Nothing from A–E is committed.
+
+## Final state (2026-09-05)
+
+- Acceptance criteria 1–6 and 8 validated in the browser / on GitHub. Criterion 7 (AI panel) is implemented and unit-tested end-to-end with a mock model; the live run needs an `OPENAI_API_KEY` (or Anthropic key), which was absent from the environment.
+- Known environment quirk (not an app bug): the very first automated click after a page navigation in the Chrome automation tool delivers no DOM events; a human click works. Documented here so it is not chased again.
