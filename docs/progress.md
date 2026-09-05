@@ -41,7 +41,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 
 ## Cross-cutting
 - [x] E2E fixture repo `coja-e2e-fixture` with PR #1 (adds, edits, rename, large file) — see e2e-fixture.md
-- [~] Invariant audit — round 1 (Opus, server stages 2–4): Invariant 1 PASS, Invariant 2 PASS structurally; CSRF/DNS-rebinding gap (C1) + M3–M6/L7–L14 fixed and guard verified over HTTP. Round 2 (AI layer, guard, web) running.
+- [~] Invariant audit — round 1 (Opus, server stages 2–4): Invariant 1 PASS, Invariant 2 PASS structurally; CSRF/DNS-rebinding gap (C1) + M3–M6/L7–L14 fixed and guard verified over HTTP. Round 2 (Opus, AI layer + guard + web): Invariant 1 PASS, Invariant 2 PASS, guard closes the cross-origin hole (with documented caveats); findings H1 (remote images in assistant markdown), M2 (CSP), M3 (wildcard bind), M4 (unbounded chat input), M5 (Ask AI on renamed file's LEFT side), L6–L11 being fixed.
 
 ## Resume notes (written 2026-09-04 23:55, before a usage-limit pause)
 
