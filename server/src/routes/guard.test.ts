@@ -39,6 +39,15 @@ const expectRefused = async (res: Response, status: number, error: string) => {
   expect((await res.json()) as ApiError).toEqual({ error })
 }
 
+/** A 403 whose body names the refused Host header value. */
+const expectBadHost = async (res: Response, host: string) => {
+  expect(res.status).toBe(403)
+  const { error } = (await res.json()) as ApiError
+  expect(error).toMatch(/^bad host "/)
+  expect(error).toContain(`"${host}"`)
+  expect(error).toContain('only loopback or the --host address is served')
+}
+
 describe('hostnameOf', () => {
   it.each([
     ['127.0.0.1:4321', '127.0.0.1'],
@@ -92,29 +101,24 @@ describe('request guard: Host', () => {
       '',
       '[::1',
     ]) {
-      await expectRefused(await send(app, 'GET', '/api/ping', { host }), 403, 'bad host')
-      await expectRefused(await send(app, 'GET', '/', { host }), 403, 'bad host')
-      await expectRefused(
-        await send(app, 'POST', '/api/echo', browserJson({ host }), BODY),
-        403,
-        'bad host',
-      )
+      await expectBadHost(await send(app, 'GET', '/api/ping', { host }), host)
+      await expectBadHost(await send(app, 'GET', '/', { host }), host)
+      await expectBadHost(await send(app, 'POST', '/api/echo', browserJson({ host }), BODY), host)
     }
   })
 
   it('accepts the extra hosts from allowedHosts', async () => {
     const host = '192.168.1.5:4321'
-    await expectRefused(await send(guarded(), 'GET', '/api/ping', { host }), 403, 'bad host')
+    await expectBadHost(await send(guarded(), 'GET', '/api/ping', { host }), host)
     const app = guarded({ allowedHosts: ['192.168.1.5', 'Review-Box.local'] })
     expect((await send(app, 'GET', '/api/ping', { host })).status).toBe(200)
     expect((await send(app, 'GET', '/api/ping', { host: 'review-box.local:4321' })).status).toBe(
       200,
     )
     expect((await send(app, 'GET', '/api/ping', { host: 'localhost:4321' })).status).toBe(200)
-    await expectRefused(
+    await expectBadHost(
       await send(app, 'GET', '/api/ping', { host: 'evil.example' }),
-      403,
-      'bad host',
+      'evil.example',
     )
   })
 })

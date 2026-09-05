@@ -1,6 +1,6 @@
 import { tool } from 'ai'
 import { z } from 'zod'
-import { blame, blobInfo, diff, grep, log, lsTree, showFile } from '../git/plumbing.js'
+import { blame, blobInfo, countLines, diff, grep, log, lsTree, showFile } from '../git/plumbing.js'
 import type { GitChangedFile, PrRef } from '../shared/api.js'
 
 /**
@@ -20,7 +20,6 @@ export interface ToolContext {
   headOid: string
   /** The merge base — the old version the diff's left side shows (decisions.md). */
   baseOid: string
-  prNumber: number
   /** Changed files between base and head, as the UI lists them. */
   files: GitChangedFile[]
 }
@@ -48,6 +47,14 @@ export const LOG_MAX_COUNT = 50
 export const BLAME_MAX_LINES = 200
 
 const MiB = 1024 * 1024
+
+/** Bytes of a blob read_file and git_blame read; lines beyond are still counted, just not shown. */
+export const MAX_BLOB_BYTES = 5 * MiB
+
+export interface ReviewToolOptions {
+  /** Test seam: a smaller blob cap than MAX_BLOB_BYTES. */
+  maxBlobBytes?: number
+}
 
 const TOOL_DESCRIPTIONS: Record<ReviewToolName, string> = {
   read_file:
@@ -89,7 +96,8 @@ const pathSchema = z
 const lineSchema = z.number().int().min(1)
 
 /** Build the six tools bound to one pull request. The returned object has exactly the REVIEW_TOOL_NAMES keys. */
-export function createReviewTools(ctx: ToolContext) {
+export function createReviewTools(ctx: ToolContext, opts: ReviewToolOptions = {}) {
+  const maxBlobBytes = opts.maxBlobBytes ?? MAX_BLOB_BYTES
   const oidOf = (ref: PrRef): string => (ref === 'head' ? ctx.headOid : ctx.baseOid)
 
   return {
@@ -109,22 +117,25 @@ export function createReviewTools(ctx: ToolContext) {
       }),
       execute: async ({ ref, path, startLine, endLine }) => {
         const oid = oidOf(ref)
-        const file = await readTextFile(ctx, oid, ref, path)
-        const lines = splitLines(file.text)
+        const file = await readTextFile(ctx, oid, ref, path, maxBlobBytes)
         const window = resolveWindow(
           startLine,
           endLine,
-          lines.length,
+          file.lineCount,
           READ_DEFAULT_LINES,
           READ_MAX_LINES,
         )
+        // Past the byte cap the lines exist (lineCount counts them) but were not read.
+        const shownEnd = Math.min(window.end, file.lines.length)
         const notes: string[] = []
-        if (file.truncated) {
-          notes.push(`The file is ${file.size} bytes; only its first 5 MiB were read.`)
-        }
-        if (window.end < lines.length) {
+        if (file.truncated) notes.push(truncationNote(file))
+        if (shownEnd < window.end) {
           notes.push(
-            `Showing lines ${window.start}-${window.end} of ${lines.length}. Call read_file again with startLine=${window.end + 1} to continue.`,
+            `Lines ${Math.max(window.start, shownEnd + 1)}-${window.end} lie beyond what was read and are not shown; git_blame returns the content of any line range.`,
+          )
+        } else if (window.end < file.lineCount) {
+          notes.push(
+            `Showing lines ${window.start}-${window.end} of ${file.lineCount}. Call read_file again with startLine=${window.end + 1} to continue.`,
           )
         }
         return {
@@ -133,10 +144,10 @@ export function createReviewTools(ctx: ToolContext) {
           oid,
           startLine: window.start,
           endLine: window.end,
-          lineCount: lines.length,
-          truncated: window.truncated,
+          lineCount: file.lineCount,
+          truncated: window.truncated || shownEnd < window.end,
           ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
-          content: numberLines(lines.slice(window.start - 1, window.end), window.start),
+          content: numberLines(file.lines.slice(window.start - 1, shownEnd), window.start),
         }
       },
     }),
@@ -195,6 +206,9 @@ export function createReviewTools(ctx: ToolContext) {
         ignoreCase: z.boolean().optional(),
       }),
       execute: async ({ ref, pattern, pathspec, ignoreCase }) => {
+        // Glob pathspecs ("src/*.ts") are meant to work here, so they pass through as given;
+        // the plumbing's assertPathspec still blocks pathspec magic (a leading ":"), option-like
+        // values (a leading "-"), ".." and absolute paths.
         const { matches, truncated } = await grep(ctx.repo, oidOf(ref), pattern, {
           ...(pathspec !== undefined ? { pathspec } : {}),
           ...(ignoreCase !== undefined ? { ignoreCase } : {}),
@@ -275,17 +289,17 @@ export function createReviewTools(ctx: ToolContext) {
       }),
       execute: async ({ ref, path, startLine, endLine }) => {
         const oid = oidOf(ref)
-        const file = await readTextFile(ctx, oid, ref, path)
-        const lineCount = splitLines(file.text).length
+        const file = await readTextFile(ctx, oid, ref, path, maxBlobBytes)
         const window = resolveWindow(
           startLine,
           endLine,
-          lineCount,
+          file.lineCount,
           BLAME_MAX_LINES,
           BLAME_MAX_LINES,
         )
+        // git blame reads the whole blob itself, so lines past the read cap are still attributed.
         const lines =
-          lineCount === 0
+          file.lineCount === 0
             ? []
             : await blame(ctx.repo, oid, path, { startLine: window.start, endLine: window.end })
         const commits: Record<
@@ -300,19 +314,22 @@ export function createReviewTools(ctx: ToolContext) {
             summary: l.summary,
           }
         }
+        const notes: string[] = []
+        if (file.truncated) notes.push(truncationNote(file))
+        if (window.end < file.lineCount) {
+          notes.push(
+            `Lines ${window.start}-${window.end} of ${file.lineCount}. Continue with startLine=${window.end + 1}.`,
+          )
+        }
         return {
           ref,
           path,
           oid,
           startLine: window.start,
           endLine: window.end,
-          lineCount,
+          lineCount: file.lineCount,
           truncated: window.truncated,
-          ...(window.end < lineCount
-            ? {
-                note: `Lines ${window.start}-${window.end} of ${lineCount}. Continue with startLine=${window.end + 1}.`,
-              }
-            : {}),
+          ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
           /** Keyed by abbreviated commit oid, as referenced by `lines[].commit`. */
           commits,
           lines: lines.map((l) => ({ line: l.line, commit: l.abbreviatedOid, content: l.content })),
@@ -471,8 +488,30 @@ const isBinaryPatch = (patch: string): boolean =>
 // File helpers
 // ---------------------------------------------------------------------------
 
-/** The text of `path` at `oid`, with clear errors for missing paths, directories and binaries. */
-async function readTextFile(ctx: ToolContext, oid: string, ref: PrRef, path: string) {
+interface TextFile {
+  /** Complete lines within the first `maxBytes` — the whole file unless `truncated`. */
+  lines: string[]
+  /** Lines in the whole blob; counted by git when the read was truncated. */
+  lineCount: number
+  /** Whole blob size in bytes. */
+  size: number
+  truncated: boolean
+  maxBytes: number
+}
+
+/**
+ * The text of `path` at `oid`, with clear errors for missing paths, directories
+ * and binaries. A blob over `maxBytes` is read up to the cap: `lines` then
+ * holds the complete lines that fit while `lineCount` is still the true count,
+ * so a window past the cap is "not shown" rather than a false "past the end".
+ */
+async function readTextFile(
+  ctx: ToolContext,
+  oid: string,
+  ref: PrRef,
+  path: string,
+  maxBytes: number,
+): Promise<TextFile> {
   const info = await blobInfo(ctx.repo, oid, path)
   if (!info.exists) {
     throw new Error(
@@ -483,12 +522,26 @@ async function readTextFile(ctx: ToolContext, oid: string, ref: PrRef, path: str
     throw new Error(`${path} is a directory at ${ref}; use list_files to see the files in it`)
   }
   if (info.type !== 'blob') throw new Error(`${path} is a ${info.type} at ${ref}, not a file`)
-  const file = await showFile(ctx.repo, oid, path)
+  const file = await showFile(ctx.repo, oid, path, { maxBytes })
   if (file.binary) {
     throw new Error(`binary file: ${path} at ${ref} (${file.size} bytes) has no text to show`)
   }
-  return file
+  const lines = splitLines(file.text)
+  if (!file.truncated) {
+    return { lines, lineCount: lines.length, size: file.size, truncated: false, maxBytes }
+  }
+  // The cut lands mid-line unless the last byte read was a newline; a partial line is worse than none.
+  if (!file.text.endsWith('\n')) lines.pop()
+  const lineCount = await countLines(ctx.repo, oid, path)
+  return { lines, lineCount, size: file.size, truncated: true, maxBytes }
 }
+
+/** Shared by read_file and git_blame, so the model hears one story about a capped blob. */
+function truncationNote(file: TextFile): string {
+  return `The file is ${file.size} bytes; only its first ${describeBytes(file.maxBytes)} (${file.lines.length} complete lines of ${file.lineCount}) were read.`
+}
+
+const describeBytes = (n: number): string => (n % MiB === 0 ? `${n / MiB} MiB` : `${n} bytes`)
 
 /** Why a path may be missing at one side of the PR, from the changed-files list. */
 function missingHint(ctx: ToolContext, ref: PrRef, path: string): string {

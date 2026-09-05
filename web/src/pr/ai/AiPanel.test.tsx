@@ -64,8 +64,8 @@ function routes(over: MockRoutes = {}): MockRoutes {
   }
 }
 
-function renderPanel() {
-  const client = createQueryClient({ retry: false })
+function renderPanel(queryDefaults: Parameters<typeof createQueryClient>[0] = { retry: false }) {
+  const client = createQueryClient(queryDefaults)
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
@@ -220,6 +220,34 @@ describe('AiPanel — conversations', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('provider exploded')
     expect(within(alert).getByRole('button', { name: 'Retry' })).toBeDefined()
+  })
+
+  it('"Start a new conversation" after a load failure creates a fresh chat rather than re-selecting the broken one', async () => {
+    const created: Chat = { ...chat2, id: 'c3', updatedAt: '2026-09-05T03:00:00Z' }
+    const mock = installMockApi(
+      routes({
+        [`GET ${BASE}/chats`]: [chat1],
+        [`GET ${BASE}/chats/c1`]: () => jsonError(500, 'database is locked', 'git'),
+        [`POST ${BASE}/chats`]: created,
+      }),
+    )
+    // The record query retries a non-404 once; no delay keeps the test quick.
+    renderPanel({ retry: false, retryDelay: 0 })
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Could not load this chat')
+    expect(alert.textContent).toContain('database is locked')
+    await waitFor(() => expect(modelSelect().value).toBe('openai:gpt-5-mini'))
+    const attempts = mock.callsTo('GET', `${BASE}/chats/c1`).length
+    expect(attempts).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new conversation' }))
+    await waitFor(() => expect(mock.callsTo('POST', `${BASE}/chats`)).toHaveLength(1))
+    expect(mock.callsTo('POST', `${BASE}/chats`)[0]?.body).toEqual({ model: 'openai:gpt-5-mini' })
+    // The new, empty chat is current; the failure is gone; the broken chat is not fetched again.
+    expect(await screen.findByRole('list', { name: 'Suggestions' })).toBeDefined()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(localStorage.getItem('coja.aiChat:p1:1')).toBe(JSON.stringify('c3'))
+    expect(mock.callsTo('GET', `${BASE}/chats/c1`)).toHaveLength(attempts)
   })
 
   it('deletes a chat from the history after confirmation', async () => {

@@ -33,7 +33,7 @@ export interface ComposerProps {
    */
   onSend(parts: ChatMessage['parts']): void | Promise<void>
   onStop(): void
-  /** A turn is in flight: the textarea locks and Send becomes Stop. */
+  /** A turn is in flight: Send becomes Stop; the draft stays editable but cannot be sent yet. */
   streaming: boolean
   /** No model available: everything is disabled and `disabledReason` shows. */
   disabled: boolean
@@ -53,7 +53,8 @@ export function toMessageParts(chips: readonly ContextChip[], text: string): Cha
 /**
  * The composer (design.md §4): the context-chip strip fed by "Ask AI"
  * (`bridge.onAttachSelection`), an auto-growing textarea (Enter sends,
- * Shift+Enter breaks the line) and Send/Stop.
+ * Shift+Enter breaks the line) and Send/Stop. While an answer streams the
+ * reviewer can already draft the next question; Enter then simply waits.
  */
 export function Composer({
   ref,
@@ -147,13 +148,13 @@ export function Composer({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
         rows={2}
-        disabled={disabled || streaming}
+        disabled={disabled}
         aria-label="Message"
         placeholder={
           disabled
             ? (disabledReason ?? 'AI is unavailable')
             : streaming
-              ? 'Waiting for the answer…'
+              ? 'Draft your next question… (Send returns when the answer is done)'
               : 'Ask about this PR… (Enter to send, Shift+Enter for a new line)'
         }
         className="min-h-[3.25rem] w-full resize-none rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"

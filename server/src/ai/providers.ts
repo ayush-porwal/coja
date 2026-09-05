@@ -13,6 +13,12 @@ import { PROVIDERS, type ProviderId } from '../shared/api.js'
  * very next turn. Keys never leave this process except in the provider call.
  */
 
+/**
+ * Split and check a wire model id. Only curated ids pass (HTTP 400 otherwise,
+ * listing what is accepted): the model id is forwarded to the provider, so an
+ * arbitrary string is not something to relay, and the picker never offers
+ * anything but curated ids anyway.
+ */
 export function parseModelId(id: string): { provider: ProviderId; modelId: string } {
   const colon = id.indexOf(':')
   if (colon <= 0 || colon === id.length - 1) {
@@ -22,7 +28,14 @@ export function parseModelId(id: string): { provider: ProviderId; modelId: strin
   if (!isProviderId(provider)) {
     throw badRequest(`unknown model provider "${provider}" (expected ${PROVIDERS.join(' or ')})`)
   }
-  return { provider, modelId: id.slice(colon + 1) }
+  const modelId = id.slice(colon + 1)
+  const accepted = curatedModels(provider)
+  if (!accepted.some((m) => m.modelId === modelId)) {
+    throw badRequest(
+      `unknown ${PROVIDER_LABELS[provider]} model "${id}"; accepted: ${accepted.map((m) => m.id).join(', ')}`,
+    )
+  }
+  return { provider, modelId }
 }
 
 export async function resolveLanguageModel(

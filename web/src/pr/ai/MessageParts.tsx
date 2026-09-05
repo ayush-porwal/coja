@@ -10,6 +10,7 @@ import {
   isRecord,
   summarizeToolCall,
 } from './types'
+import { safeHttpUrl } from './urls'
 
 export interface MessagePartsProps {
   message: ChatMessage
@@ -78,15 +79,23 @@ function Part({ part, index, role, paths }: PartProps) {
       )
     case 'file':
       return <p className="text-xs text-zinc-500">Attachment: {part.filename ?? part.mediaType}</p>
-    case 'source-url':
+    case 'source-url': {
+      // Same policy as links in markdown: only http(s) becomes a link, anything else is text.
+      const href = safeHttpUrl(part.url)
+      const label = part.title ?? part.url
       return (
         <p className="text-xs">
           Source:{' '}
-          <a href={part.url} target="_blank" rel="noreferrer noopener" className="underline">
-            {part.title ?? part.url}
-          </a>
+          {href ? (
+            <a href={href} target="_blank" rel="noreferrer noopener" className="underline">
+              {label}
+            </a>
+          ) : (
+            <span className="break-all">{label}</span>
+          )}
         </p>
       )
+    }
     default:
       if (part.type === 'data-chip' && isContextChip(part.data)) {
         return (

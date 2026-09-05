@@ -34,7 +34,10 @@ let fx: Fixture
 let ctx: ToolContext
 let tools: ReturnType<typeof createReviewTools>
 /** Tools for a second PR head that adds a 1000-line file, for the per-call caps. */
+let bigCtx: ToolContext
 let big: ReturnType<typeof createReviewTools>
+/** The 1000-line file's content, to predict what a byte cap leaves readable. */
+let bigBody: string
 
 beforeAll(async () => {
   fx = await createFixture()
@@ -43,7 +46,6 @@ beforeAll(async () => {
     repo: fx.originDir,
     headOid: fx.headOid,
     baseOid: fx.baseOid,
-    prNumber: 1,
     files: await diffNameStatus(fx.originDir, fx.baseOid, fx.headOid),
   }
   tools = createReviewTools(ctx)
@@ -51,19 +53,20 @@ beforeAll(async () => {
   // Author one more PR commit with a long file, the way the fixture authors its own commits.
   await fx.git(fx.workDir, ['checkout', '--quiet', 'feature'])
   const body = Array.from({ length: BIG_LINES }, (_, i) => `export const v${i + 1} = ${i + 1}`)
-  await writeFile(path.join(fx.workDir, 'src/big.ts'), `${body.join('\n')}\n`)
+  bigBody = `${body.join('\n')}\n`
+  await writeFile(path.join(fx.workDir, 'src/big.ts'), bigBody)
   await fx.git(fx.workDir, ['add', '-A'])
   await fx.git(fx.workDir, ['commit', '--quiet', '--no-gpg-sign', '-m', 'Add a big file'])
   const bigOid = await fx.git(fx.workDir, ['rev-parse', 'HEAD'])
   await fx.git(fx.workDir, ['push', '--quiet', 'origin', 'feature:refs/pull/2/head'])
   await fx.git(fx.workDir, ['checkout', '--quiet', 'main'])
-  big = createReviewTools({
+  bigCtx = {
     repo: fx.originDir,
     headOid: bigOid,
     baseOid: fx.baseOid,
-    prNumber: 2,
     files: await diffNameStatus(fx.originDir, fx.baseOid, bigOid),
-  })
+  }
+  big = createReviewTools(bigCtx)
 })
 
 afterAll(() => fx.cleanup())
@@ -217,6 +220,95 @@ describe('read_file', () => {
       /must not contain "\.\."/,
     )
     await expect(run(tools.read_file, { ref: 'head', path: '-rf' })).rejects.toThrow(/"-"/)
+  })
+})
+
+describe('read_file and git_blame on a blob over the byte cap', () => {
+  const CAP = 1024
+
+  /** Lines that end within the first `bytes` bytes of `text` — what a capped read can show whole. */
+  const completeLines = (text: string, bytes: number): number =>
+    Buffer.from(text, 'utf8').subarray(0, bytes).toString('utf8').split('\n').length - 1
+
+  it('counts every line, shows what was read, and never calls a real line "past the end"', async () => {
+    const capped = createReviewTools(bigCtx, { maxBlobBytes: CAP })
+    const size = Buffer.byteLength(bigBody)
+    const readable = completeLines(bigBody, CAP)
+    expect(readable).toBeGreaterThan(10)
+    expect(readable).toBeLessThan(READ_DEFAULT_LINES)
+
+    // The default window runs past the cap: the complete lines that fit, and honest bookkeeping.
+    const head = await run(capped.read_file, { ref: 'head', path: 'src/big.ts' })
+    expect(head).toMatchObject({
+      startLine: 1,
+      endLine: READ_DEFAULT_LINES,
+      lineCount: BIG_LINES,
+      truncated: true,
+    })
+    const lines = head.content.split('\n')
+    expect(lines).toHaveLength(readable)
+    expect(lines[readable - 1]).toBe(
+      `${String(readable).padStart(4)}│ export const v${readable} = ${readable}`,
+    )
+    expect(head.note).toContain(
+      `The file is ${size} bytes; only its first ${CAP} bytes (${readable} complete lines of ${BIG_LINES}) were read.`,
+    )
+    expect(head.note).toContain(
+      `Lines ${readable + 1}-${READ_DEFAULT_LINES} lie beyond what was read and are not shown`,
+    )
+
+    // A valid window entirely past the cap is empty but not an error (it used to be "past the end").
+    const tail = await run(capped.read_file, {
+      ref: 'head',
+      path: 'src/big.ts',
+      startLine: 900,
+      endLine: 905,
+    })
+    expect(tail).toMatchObject({
+      startLine: 900,
+      endLine: 905,
+      lineCount: BIG_LINES,
+      truncated: true,
+      content: '',
+    })
+    expect(tail.note).toContain('Lines 900-905 lie beyond what was read')
+    // The true end of the file is still the end.
+    await expect(
+      run(capped.read_file, { ref: 'head', path: 'src/big.ts', startLine: BIG_LINES + 1 }),
+    ).rejects.toThrow(/past the end of the file, which has 1000 lines/)
+
+    // git_blame attributes lines past the cap (git reads the blob itself) and carries the same note.
+    const blamed = await run(capped.git_blame, {
+      ref: 'head',
+      path: 'src/big.ts',
+      startLine: BIG_LINES - 2,
+      endLine: BIG_LINES,
+    })
+    expect(blamed).toMatchObject({
+      startLine: BIG_LINES - 2,
+      endLine: BIG_LINES,
+      lineCount: BIG_LINES,
+      truncated: false,
+    })
+    expect(blamed.lines.map((l) => l.content)).toEqual([
+      'export const v998 = 998',
+      'export const v999 = 999',
+      'export const v1000 = 1000',
+    ])
+    expect(blamed.note).toBe(
+      `The file is ${size} bytes; only its first ${CAP} bytes (${readable} complete lines of ${BIG_LINES}) were read.`,
+    )
+
+    // Without the cap the same file reads whole and says nothing about truncation.
+    const whole = await run(big.read_file, {
+      ref: 'head',
+      path: 'src/big.ts',
+      startLine: 900,
+      endLine: 905,
+    })
+    expect(whole).toMatchObject({ lineCount: BIG_LINES, truncated: false })
+    expect(whole.content.split('\n')).toHaveLength(6)
+    expect(whole.note).not.toContain('were read')
   })
 })
 

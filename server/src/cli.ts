@@ -8,6 +8,12 @@ import { createServices } from './services.js'
 const DEFAULT_PORT = 4321
 const DEFAULT_HOST = '127.0.0.1'
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
+/**
+ * Unspecified addresses. The request guard compares every Host header against
+ * loopback and the `--host` value, and no header ever equals a wildcard, so a
+ * server bound this way would refuse every request. Refused at parse time.
+ */
+const WILDCARD_HOSTS = new Set(['0.0.0.0', '::', '[::]', '0:0:0:0:0:0:0:0', ''])
 
 const HELP = `coja — local code review for GitHub pull requests
 
@@ -15,7 +21,8 @@ Usage: coja [options]
 
 Options:
   -p, --port <n>   Port to listen on (default ${DEFAULT_PORT}; a free port is picked if it is taken)
-      --host <h>   Address to bind (default ${DEFAULT_HOST}; coja is meant to stay on loopback)
+      --host <h>   Address to bind (default ${DEFAULT_HOST}; coja is meant to stay on loopback;
+                   wildcards such as 0.0.0.0 or :: are refused)
       --no-open    Do not open the browser
   -v, --version    Print the version and exit
   -h, --help       Show this help and exit
@@ -37,7 +44,14 @@ function parseCli(argv: string[]) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`invalid --port "${values.port}": expected an integer between 0 and 65535`)
   }
-  return { port, host: values.host, open: values.open, version: values.version, help: values.help }
+  const host = values.host.trim()
+  if (WILDCARD_HOSTS.has(host)) {
+    throw new Error(
+      `--host "${values.host}" is a wildcard bind, which the request guard could never match (no Host header equals it): ` +
+        'bind to a concrete address, e.g. --host 192.168.1.5; coja is designed for loopback',
+    )
+  }
+  return { port, host, open: values.open, version: values.version, help: values.help }
 }
 
 async function main(): Promise<void> {

@@ -103,7 +103,7 @@ describe('Composer', () => {
     expect(textarea().value).toBe('hello')
   })
 
-  it('is disabled without a model, and turns Send into Stop while streaming', () => {
+  it('is disabled without a model; while streaming Send becomes Stop but the draft stays editable', () => {
     const { onStop, rerender, onSend } = renderComposer({
       disabled: true,
       disabledReason: 'No AI provider configured — add an API key in Setup',
@@ -113,10 +113,20 @@ describe('Composer', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toHaveProperty('disabled', true)
 
     rerender(<Composer onSend={onSend} onStop={onStop} streaming disabled={false} />)
-    expect(textarea().disabled).toBe(true)
+    expect(textarea().disabled).toBe(false)
+    expect(textarea().placeholder).toContain('Draft your next question')
+    fireEvent.change(textarea(), { target: { value: 'And the tests?' } })
+    fireEvent.keyDown(textarea(), { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(textarea().value).toBe('And the tests?')
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     expect(onStop).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: 'Send' })).toBeNull()
+
+    // Once the answer is done the draft goes out as typed.
+    rerender(<Composer onSend={onSend} onStop={onStop} streaming={false} disabled={false} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSend).toHaveBeenCalledWith([{ type: 'text', text: 'And the tests?' }])
   })
 
   it('exposes insert() so suggestions can fill the draft', () => {

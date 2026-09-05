@@ -44,7 +44,13 @@ export function requestGuard(opts: RequestGuardOptions = {}): MiddlewareHandler 
     // same thing; it is the fallback when a request has no Host header (tests, HTTP/1.0).
     const host = c.req.header('host') ?? new URL(c.req.url).host
     const hostname = hostnameOf(host)
-    if (hostname === null || !allowed.has(hostname)) return forbidden(c, 'bad host')
+    if (hostname === null || !allowed.has(hostname)) {
+      // Name the offender: someone who reached this over `--host` sees at once which Host was refused.
+      return forbidden(
+        c,
+        `bad host "${host.slice(0, 200)}": only loopback or the --host address is served`,
+      )
+    }
 
     const method = c.req.method.toUpperCase()
     // No CORS is offered, so a preflight can only be a cross-origin page probing us.

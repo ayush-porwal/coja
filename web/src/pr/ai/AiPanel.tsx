@@ -266,11 +266,14 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
             onRetry={() => void record.refetch()}
             retrying={record.isFetching}
           />
+          {/* Creates and selects a fresh chat: merely forgetting the id would fall back to the
+              most recent chat, i.e. re-select the one that just failed. */}
           <Button
             size="sm"
             variant="secondary"
             className="mt-2"
-            onClick={() => setStoredChatId(null)}
+            onClick={() => void handleNewChat()}
+            disabled={noProvider || model === '' || createChat.isPending}
           >
             Start a new conversation
           </Button>

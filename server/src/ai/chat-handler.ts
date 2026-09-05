@@ -13,6 +13,7 @@ import { badRequest } from '../routes/http.js'
 import type { SecretStore } from '../secrets/store.js'
 import type { Chat, ContextChip, GitChangedFile, PullRequestDetail } from '../shared/api.js'
 import { saveMessages } from './chats.js'
+import { assertKnownToolParts, pruneOlderToolOutputs } from './history.js'
 import { buildSystemPrompt } from './prompt.js'
 import { resolveLanguageModel } from './providers.js'
 import { createReviewTools, type ToolContext } from './tools.js'
@@ -68,6 +69,8 @@ export async function handleChatTurn(params: ChatTurnParams): Promise<Response> 
   const { db, chat, model: modelId, toolContext, detail, files, signal } = params
   const tools = createReviewTools(toolContext)
 
+  // Before validation, which would quietly recast unknown tool parts as dynamic ones (history.ts).
+  assertKnownToolParts(params.messages)
   let messages: ChatMessage[]
   try {
     messages = await validateUIMessages<ChatMessage>({
@@ -86,7 +89,8 @@ export async function handleChatTurn(params: ChatTurnParams): Promise<Response> 
 
   const model = params.languageModel ?? (await resolveLanguageModel(modelId, params.secrets))
 
-  const modelMessages = await convertToModelMessages<ChatMessage>(messages, {
+  // The model gets older tool results elided; `messages` itself (persisted below) stays whole.
+  const modelMessages = await convertToModelMessages<ChatMessage>(pruneOlderToolOutputs(messages), {
     tools,
     ignoreIncompleteToolCalls: true,
     convertDataPart: (part) =>

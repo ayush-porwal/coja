@@ -1,19 +1,28 @@
 import { useMemo } from 'react'
-import Markdown, { defaultUrlTransform, type Options } from 'react-markdown'
+import Markdown, { type Options } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { bridge } from '../bridge'
 import { CITE_SCHEME, parseCitationUrl, remarkCitations } from './citations'
+import { safeHttpUrl } from './urls'
 
 type RemarkPlugins = NonNullable<Options['remarkPlugins']>
 type Components = NonNullable<Options['components']>
 
-/** Lets our `coja-cite:` links through; everything else keeps react-markdown's default sanitising. */
+/**
+ * URL policy for model output, applied by react-markdown to `href` and `src`
+ * alike: our `coja-cite:` links pass; otherwise only absolute http(s) URLs
+ * survive (the default would also let mailto, irc, xmpp and relative URLs
+ * through). A blanked URL renders as plain text below.
+ */
 function urlTransform(url: string): string {
-  return url.startsWith(CITE_SCHEME) ? url : defaultUrlTransform(url)
+  return url.startsWith(CITE_SCHEME) ? url : (safeHttpUrl(url) ?? '')
 }
 
 const citeClass =
   'inline rounded-sm px-0.5 font-mono text-[0.9em] text-blue-700 underline decoration-dotted hover:bg-blue-50 hover:decoration-solid dark:text-blue-300 dark:hover:bg-blue-950'
+
+const imageClass =
+  'rounded-sm bg-zinc-100 px-1 font-mono text-[0.85em] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
 
 const components: Components = {
   a: ({ href, children, node: _node, ...rest }) => {
@@ -32,12 +41,28 @@ const components: Components = {
         </button>
       )
     }
-    // react-markdown blanks unsafe schemes (javascript:, data:…); show those as plain text.
+    // urlTransform blanks everything but http(s); show those as plain text.
     if (!href) return <span {...rest}>{children}</span>
     return (
       <a href={href} target="_blank" rel="noreferrer noopener" {...rest}>
         {children}
       </a>
+    )
+  },
+  // Never an <img>: a markdown image is a request to a URL the model chose — an exfiltration
+  // channel for anything it read with its tools. What was there is shown as inert text instead.
+  img: ({ src, alt }) => {
+    const url = typeof src === 'string' && src !== '' ? src : null
+    return (
+      <span className={imageClass} title="Images in AI answers are never loaded">
+        [image{alt ? `: ${alt}` : ''}]
+        {url && (
+          <>
+            {' '}
+            <code className="break-all">{url}</code>
+          </>
+        )}
+      </span>
     )
   },
 }

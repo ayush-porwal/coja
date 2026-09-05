@@ -42,11 +42,42 @@ const MIME_TYPES: Record<string, string> = {
 const NO_CACHE = 'no-cache'
 const IMMUTABLE = 'public, max-age=31536000, immutable'
 
+/**
+ * Policy for the HTML document. Model output is rendered as React elements,
+ * never raw HTML; GitHub's `bodyHTML` is the one `dangerouslySetInnerHTML`, so
+ * this is the second line of defence (docs/decisions.md). Scripts and styles
+ * come from the Vite build; `'unsafe-inline'` is for styles only, because Shiki
+ * tokens carry `style` attributes (@pierre/diffs uses constructed stylesheets,
+ * which style-src does not govern, and its JS regex engine, so no wasm). Images
+ * are avatars and GitHub's camo-proxied `bodyHTML` images, nothing else.
+ */
+export const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://avatars.githubusercontent.com https://*.githubusercontent.com",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "object-src 'none'",
+].join('; ')
+
 export function createApp(opts: AppOptions) {
   const publicDir = path.resolve(opts.publicDir)
   const assetsDir = path.join(publicDir, 'assets') + path.sep
   const version = packageVersion()
   const app = new Hono()
+
+  // First, so it wraps every response there is: the guard's refusals, error
+  // bodies, API JSON and static files alike.
+  app.use('*', async (c, next) => {
+    await next()
+    c.header('x-content-type-options', 'nosniff')
+    c.header('referrer-policy', 'no-referrer')
+  })
 
   // Host allow-list + cross-site request refusal: a web page on another origin
   // must never be able to drive this loopback API (see docs/decisions.md).
@@ -114,11 +145,13 @@ async function serveFile(file: string, cacheControl: string): Promise<Response |
   } catch {
     return null
   }
-  return new Response(body, {
-    headers: {
-      'content-type': MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
-      'content-length': String(body.byteLength),
-      'cache-control': cacheControl,
-    },
-  })
+  const type = MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
+  const headers: Record<string, string> = {
+    'content-type': type,
+    'content-length': String(body.byteLength),
+    'cache-control': cacheControl,
+  }
+  // The document (served directly or as the SPA fallback) carries the policy; assets need none.
+  if (type.startsWith('text/html')) headers['content-security-policy'] = CONTENT_SECURITY_POLICY
+  return new Response(body, { headers })
 }

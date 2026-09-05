@@ -46,8 +46,21 @@ export interface ChatRouteDeps {
 
 const newChatSchema = z.object({ model: z.string().min(1).optional() })
 
+/**
+ * The browser re-sends the whole conversation every turn, so one request is
+ * bounded here (bytes, messages); what of it reaches the model is bounded in
+ * ai/history.ts.
+ */
+export const MAX_BODY_BYTES = 5 * 1024 * 1024
+export const MAX_MESSAGES = 400
+
 const chatRequestSchema = z.object({
-  messages: z.array(z.unknown()),
+  messages: z
+    .array(z.unknown())
+    .max(
+      MAX_MESSAGES,
+      `a conversation may hold at most ${MAX_MESSAGES} messages; start a new chat`,
+    ),
   model: z.string().min(1),
 })
 
@@ -113,6 +126,8 @@ export function registerChatRoutes(app: Hono, ctx: ServerContext, deps: ChatRout
     const { project, number } = resolvePr(ctx, c)
     const { chat } = loadChat(c, project, number)
     const body = parse(chatRequestSchema, await readJsonBody(c))
+    // An unknown model is a 400 here, before the fetch-state check and whichever model resolver runs.
+    parseModelId(body.model)
     const { headOid, mergeBaseOid, detail, files } = await loadPr(project, number)
     return handleChatTurn({
       db: ctx.db,
@@ -124,7 +139,6 @@ export function registerChatRoutes(app: Hono, ctx: ServerContext, deps: ChatRout
         repo: project.path,
         headOid,
         baseOid: mergeBaseOid,
-        prNumber: number,
         files,
       },
       detail,
@@ -145,15 +159,47 @@ export function registerChatRoutes(app: Hono, ctx: ServerContext, deps: ChatRout
   })
 }
 
-/** The JSON body, or `{}` when there is none (all fields of NewChatRequest are optional). */
+/** The JSON body, or `{}` when there is none (all fields of NewChatRequest are optional). 413 past MAX_BODY_BYTES. */
 async function readJsonBody(c: Context): Promise<unknown> {
-  const text = await c.req.text()
+  const text = await readBodyText(c, MAX_BODY_BYTES)
   if (text.trim() === '') return {}
   try {
     return JSON.parse(text) as unknown
   } catch {
     throw badRequest('request body must be JSON')
   }
+}
+
+/**
+ * The request body as text, refusing more than `maxBytes` with a 413: up front
+ * when Content-Length says so, otherwise as soon as the stream exceeds the cap,
+ * so an oversized body is never buffered whole (let alone parsed).
+ */
+async function readBodyText(c: Context, maxBytes: number): Promise<string> {
+  const tooLarge = () =>
+    new HttpError(
+      413,
+      `request body too large: at most ${maxBytes / (1024 * 1024)} MB per chat request`,
+      'bad_request',
+    )
+  const declared = Number(c.req.header('content-length'))
+  if (Number.isFinite(declared) && declared > maxBytes) throw tooLarge()
+  const body = c.req.raw.body
+  if (!body) return ''
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw tooLarge()
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {

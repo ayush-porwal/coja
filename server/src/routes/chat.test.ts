@@ -22,7 +22,7 @@ import {
   type Project,
   type PullRequestDetail,
 } from '../shared/api.js'
-import { registerChatRoutes } from './chat.js'
+import { MAX_BODY_BYTES, MAX_MESSAGES, registerChatRoutes } from './chat.js'
 import { onApiError } from './http.js'
 
 const MODEL = 'openai:gpt-5-mini'
@@ -183,11 +183,16 @@ describe('chat routes', () => {
     expect(dflt.status).toBe(201)
     expect(dflt.body.model).toBe('anthropic:claude-sonnet-4-5')
 
-    for (const model of ['gpt-5', 'gemini:pro', ':x', 'openai:']) {
+    for (const model of ['gpt-5', 'gemini:pro', ':x', 'openai:', 'openai:gpt-9', 'anthropic:x']) {
       const res = await post<ApiError>(API_ROUTES.prChats(project.id, 1), { model })
       expect(res.status, model).toBe(400)
       expect(res.body.code).toBe('bad_request')
     }
+    // Only curated model ids are accepted; the error lists them.
+    const unknown = await post<ApiError>(API_ROUTES.prChats(project.id, 1), {
+      model: 'openai:gpt-9',
+    })
+    expect(unknown.body.error).toContain('accepted: openai:gpt-5, openai:gpt-5-mini')
 
     const list = await get<Chat[]>(API_ROUTES.prChats(project.id, 1))
     expect(list.body.map((c) => c.id)).toEqual(
@@ -299,6 +304,60 @@ describe('chat routes', () => {
         })
       ).status,
     ).toBe(404)
+  })
+
+  it('bounds one chat request: unknown models, more than 400 messages and bodies over 5 MB', async () => {
+    const chat = await newChat()
+    const url = API_ROUTES.prChatMessages(project.id, 1, chat.id)
+    const readsBefore = readCalls.length
+
+    const model = await post<ApiError>(url, { messages: [userMessage], model: 'openai:gpt-9' })
+    expect(model.status).toBe(400)
+    expect(model.body).toMatchObject({ code: 'bad_request' })
+    expect(model.body.error).toContain('accepted: openai:gpt-5')
+
+    const many = Array.from({ length: MAX_MESSAGES + 1 }, (_, i) => ({
+      ...userMessage,
+      id: `u${i}`,
+    }))
+    const tooMany = await post<ApiError>(url, { messages: many, model: MODEL })
+    expect(tooMany.status).toBe(400)
+    expect(tooMany.body).toEqual({
+      error: `invalid request: messages: a conversation may hold at most ${MAX_MESSAGES} messages; start a new chat`,
+      code: 'bad_request',
+    })
+
+    // Oversized, declared up front: refused before any of the body is read.
+    const declared = await app.request(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': String(MAX_BODY_BYTES + 1) },
+      body: '{}',
+    })
+    expect(declared.status).toBe(413)
+    expect(((await declared.json()) as ApiError).error).toContain('too large')
+
+    // Oversized without a Content-Length: refused as soon as the stream passes the cap.
+    const huge = JSON.stringify({
+      messages: [{ ...userMessage, parts: [{ type: 'text', text: 'x'.repeat(MAX_BODY_BYTES) }] }],
+      model: MODEL,
+    })
+    expect(huge.length).toBeGreaterThan(MAX_BODY_BYTES)
+    const streamed = await app.request(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: huge,
+    })
+    expect(streamed.status).toBe(413)
+    expect((await streamed.json()) as ApiError).toEqual({
+      error: 'request body too large: at most 5 MB per chat request',
+      code: 'bad_request',
+    })
+
+    // Nothing above reached the PR reader; the chat is untouched.
+    expect(readCalls).toHaveLength(readsBefore)
+    expect(
+      (await get<ChatWithMessages>(API_ROUTES.prChat(project.id, 1, chat.id))).body.messages,
+    ).toEqual([])
   })
 
   it('streams a whole turn through the route, reading the fetched objects, and persists it', async () => {

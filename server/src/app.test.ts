@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createApp } from './app.js'
+import { CONTENT_SECURITY_POLICY, createApp } from './app.js'
 
 const INDEX_HTML = '<!doctype html><title>coja test shell</title>'
 
@@ -73,5 +73,50 @@ describe('createApp', () => {
     const res = await createApp({ publicDir: path.join(publicDir, 'missing') }).request('/')
     expect(res.status).toBe(503)
     expect(await res.text()).toContain('pnpm build')
+  })
+
+  it('sends the Content-Security-Policy with the HTML document, direct and as the SPA fallback', async () => {
+    const app = createApp({ publicDir })
+    for (const route of ['/', '/index.html', '/some/route', '/%2e%2e/%2e%2e/etc/passwd']) {
+      const res = await app.request(route)
+      expect(res.status, route).toBe(200)
+      expect(res.headers.get('content-security-policy'), route).toBe(CONTENT_SECURITY_POLICY)
+    }
+    // The policy itself: no inline or remote scripts, no framing, styles inline only, images pinned.
+    expect(CONTENT_SECURITY_POLICY).toContain("default-src 'self'; script-src 'self'; ")
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*unsafe/)
+    expect(CONTENT_SECURITY_POLICY).toContain("style-src 'self' 'unsafe-inline'")
+    expect(CONTENT_SECURITY_POLICY).toContain(
+      "img-src 'self' data: https://avatars.githubusercontent.com https://*.githubusercontent.com",
+    )
+    expect(CONTENT_SECURITY_POLICY).toContain("connect-src 'self'")
+    expect(CONTENT_SECURITY_POLICY).toContain("worker-src 'self' blob:")
+    for (const directive of ['frame-ancestors', 'base-uri', 'form-action', 'object-src']) {
+      expect(CONTENT_SECURITY_POLICY).toContain(`${directive} 'none'`)
+    }
+    // It governs the document only: assets and API responses carry none.
+    expect(
+      (await app.request('/assets/app-abc123.js')).headers.get('content-security-policy'),
+    ).toBeNull()
+    expect((await app.request('/api/health')).headers.get('content-security-policy')).toBeNull()
+  })
+
+  it('marks every response nosniff and no-referrer, refusals and errors included', async () => {
+    const app = createApp({ publicDir })
+    const responses: [string, Response][] = [
+      ['index', await app.request('/')],
+      ['fallback', await app.request('/some/route')],
+      ['asset', await app.request('/assets/app-abc123.js')],
+      ['api', await app.request('/api/health')],
+      ['api 404', await app.request('/api/nope')],
+      ['asset 404', await app.request('/assets/missing.js')],
+      ['guard 403', await app.request('/api/health', { headers: { host: 'evil.example' } })],
+      ['unbuilt 503', await createApp({ publicDir: path.join(publicDir, 'missing') }).request('/')],
+    ]
+    for (const [name, res] of responses) {
+      expect(res.headers.get('x-content-type-options'), name).toBe('nosniff')
+      expect(res.headers.get('referrer-policy'), name).toBe('no-referrer')
+    }
+    expect(responses.map(([, r]) => r.status)).toEqual([200, 200, 200, 200, 404, 404, 403, 503])
   })
 })
