@@ -1,14 +1,18 @@
 import {
+  type AddCustomProviderRequest,
   type AddProjectRequest,
   API_ROUTES,
+  type ChatGptConnectStatus,
+  type CustomProvidersResponse,
+  type DirListing,
+  type FetchCustomModelsRequest,
+  type FetchCustomModelsResponse,
   type Project,
-  type ProviderId,
   type PullRequestSummary,
-  type SaveKeyRequest,
-  type SaveKeyResponse,
   type SetupStatus,
 } from '@coja/shared/api'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { aiKeys } from '../pr/ai/hooks'
 import { api } from './client'
 
 /** Query keys, in one place so invalidation and reads can never drift apart. */
@@ -30,20 +34,38 @@ export function useSetupStatus() {
   })
 }
 
-export function useSaveKey() {
+export function useAddCustomProvider() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: SaveKeyRequest) => api.post<SaveKeyResponse>(API_ROUTES.setupKey, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup }),
+    mutationFn: (body: AddCustomProviderRequest) =>
+      api.post<CustomProvidersResponse>(API_ROUTES.setupCustomProviders, body),
+    onSuccess: (data) => {
+      // Seed the fresh list; the status refetch picks it up too.
+      queryClient.setQueryData<SetupStatus>(queryKeys.setup, (prev) =>
+        prev ? { ...prev, customProviders: data.customProviders } : prev,
+      )
+      // The chat panel caches /api/ai/models — drop it so the new provider is
+      // there on the next visit without a reload.
+      queryClient.invalidateQueries({ queryKey: aiKeys.models })
+    },
   })
 }
 
-export function useDeleteKey() {
+export function useFetchCustomModels() {
+  return useMutation({
+    mutationFn: (body: FetchCustomModelsRequest) =>
+      api.post<FetchCustomModelsResponse>(API_ROUTES.setupCustomModels, body),
+  })
+}
+
+export function useDeleteCustomProvider() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (provider: ProviderId) =>
-      api.delete<{ ok: true }>(API_ROUTES.setupKeyDelete(provider)),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup }),
+    mutationFn: (id: string) => api.delete<{ ok: true }>(API_ROUTES.setupCustomProviderDelete(id)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.setup })
+      queryClient.invalidateQueries({ queryKey: aiKeys.models })
+    },
   })
 }
 
@@ -54,6 +76,48 @@ export function useCompleteSetup() {
     // The response *is* the fresh status: seed the cache so the boot guard lets
     // `/` through on the very next render instead of waiting for a refetch.
     onSuccess: (status) => queryClient.setQueryData(queryKeys.setup, status),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// ChatGPT subscription
+// ---------------------------------------------------------------------------
+
+export interface ConnectChatGptResponse {
+  ok: true
+  /** The authorization page — the server also opens it in the browser. */
+  authUrl: string
+}
+
+/** Start the browser sign-in; completion arrives via `useChatGptConnectStatus`. */
+export function useConnectChatGpt() {
+  return useMutation({
+    mutationFn: () => api.post<ConnectChatGptResponse>(API_ROUTES.setupChatgptConnect),
+  })
+}
+
+/**
+ * Poll while a sign-in is open (`enabled`); the server opens the browser and
+ * completes the flow in the background.
+ */
+export function useChatGptConnectStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: ['setup', 'chatgpt-status'],
+    queryFn: () => api.get<ChatGptConnectStatus>(API_ROUTES.setupChatgptStatus),
+    enabled,
+    refetchInterval: 1500,
+  })
+}
+
+/** Forget the stored tokens. There is no upstream revoke on this client. */
+export function useDisconnectChatGpt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.delete<{ ok: true }>(API_ROUTES.setupChatgptDisconnect),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.setup })
+      queryClient.invalidateQueries({ queryKey: aiKeys.models })
+    },
   })
 }
 
@@ -78,6 +142,36 @@ export function useProject(projectId: string) {
       queryClient
         .getQueryData<Project[]>(queryKeys.projects)
         ?.find((project) => project.id === projectId),
+  })
+}
+
+/** The server user's home directory — the path picker's start point. */
+export function useFsHome(enabled: boolean) {
+  return useQuery({
+    queryKey: ['fs-home'],
+    queryFn: () => api.get<{ home: string }>(API_ROUTES.fsHome),
+    enabled,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+}
+
+/**
+ * Subdirectories of `path` filtered by `prefix` (server-side, capped). Disabled
+ * unless both the picker is open and `path` looks absolute — the server would
+ * otherwise answer 400 for every keystroke of a relative path.
+ */
+export function useFsDirs(path: string, prefix: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['fs-dirs', path, prefix],
+    queryFn: () => {
+      const params = new URLSearchParams({ path })
+      if (prefix) params.set('prefix', prefix)
+      return api.get<DirListing>(`${API_ROUTES.fsDirs}?${params.toString()}`)
+    },
+    enabled: enabled && path.startsWith('/'),
+    // Each (path, prefix) pair is its own cache entry; listings stay fresh.
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
   })
 }
 

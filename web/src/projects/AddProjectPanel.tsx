@@ -3,6 +3,7 @@ import { type FormEvent, type ReactNode, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAddProject } from '../api/hooks'
 import { Button, cn, Field, focusRing, Input } from '../ui'
+import { DirectoryPicker } from './DirectoryPicker'
 
 type Mode = AddProjectRequest['kind']
 
@@ -43,10 +44,8 @@ export function AddProjectPanel({ intro, className }: AddProjectPanelProps) {
     <section
       aria-labelledby="add-project-heading"
       className={cn(
-        'rounded-lg border bg-white p-5 dark:bg-zinc-900',
-        intro
-          ? 'border-dashed border-zinc-300 dark:border-zinc-700'
-          : 'border-zinc-200 dark:border-zinc-800',
+        'rounded-lg border bg-card p-5',
+        intro ? 'border-dashed border-edge-strong' : 'border-edge',
         className,
       )}
     >
@@ -54,7 +53,7 @@ export function AddProjectPanel({ intro, className }: AddProjectPanelProps) {
         {intro ? 'Add a project' : 'Add project'}
       </h2>
       {intro && (
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-1 text-sm text-muted">
           Point coja at a local clone — we read <code className="font-mono">origin</code> to
           identify the GitHub repo — or give it a GitHub{' '}
           <code className="font-mono">owner/repo</code> to clone into app storage.
@@ -62,7 +61,7 @@ export function AddProjectPanel({ intro, className }: AddProjectPanelProps) {
       )}
 
       <form onSubmit={submit} className="mt-4 flex flex-col gap-4">
-        <fieldset className="inline-flex self-start rounded-md border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950">
+        <fieldset className="inline-flex self-start rounded-md border border-edge bg-active p-0.5">
           <legend className="sr-only">Project source</legend>
           <SegmentButton active={mode === 'local'} onClick={() => switchMode('local')}>
             Local clone
@@ -84,17 +83,12 @@ export function AddProjectPanel({ intro, className }: AddProjectPanelProps) {
             }
             error={errorMessage}
           >
-            <Input
+            <DirectoryPicker
               id="project-path"
-              name="path"
-              className="font-mono"
-              placeholder="/Users/you/src/my-repo"
-              autoComplete="off"
-              spellCheck={false}
               value={path}
               invalid={add.isError}
-              onChange={(event) => {
-                setPath(event.target.value)
+              onChange={(next) => {
+                setPath(next)
                 if (add.isError) add.reset()
               }}
             />
@@ -155,9 +149,7 @@ function SegmentButton({
       className={cn(
         'rounded px-2.5 py-1 text-xs font-medium transition-colors',
         focusRing,
-        active
-          ? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100'
-          : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100',
+        active ? 'bg-card text-ink shadow-xs' : 'text-muted hover:text-ink',
       )}
     >
       {children}
