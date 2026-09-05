@@ -1,28 +1,230 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+ * Bundled fonts (no CDN): IBM Plex Sans for UI, Maple Mono NF for code.
+ * Licenses + provenance in web/public/fonts/... (OFL 1.1).
+ * --------------------------------------------------------------------------- */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-MediumItalic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-SemiBoldItalic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans/IBMPlexSans-BoldItalic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-MediumItalic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-SemiBoldItalic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maple Mono NF";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/maple-mono-nf/MapleMono-NF-BoldItalic.woff2") format("woff2");
+}
+
 /*
- * Base look: system font stack (Tailwind's default --font-sans), tabular numbers
- * everywhere so PR numbers and counts line up, and a light theme that follows
- * prefers-color-scheme — the same media query Tailwind's `dark:` variant uses.
- * Plain CSS (no @apply) because the repo's Biome config does not enable
- * Tailwind directives in its CSS parser.
+ * coja's theme system (web/src/themes/): every colour a component uses is a
+ * semantic token backed by a `--coja-*` custom property that applyTheme sets
+ * from the active palette on <html>. Switching palette or appearance is one
+ * write to :root — chrome, diffs (via --diffs-* token vars), the Pierre tree
+ * and the chat all restyle together.
+ *
+ * The utilities come from the @theme block below (`bg-canvas`, `text-ink`,
+ * `border-edge`, …). `inline` keeps the utilities pointing at the runtime
+ * variables instead of copying their boot-time values.
+ *
+ * The `dark:` variant follows the *applied* appearance (data-coja-appearance,
+ * set by applyTheme), not prefers-color-scheme — the user's explicit choice
+ * wins over the OS. Plain CSS (no @apply) because the repo's Biome config does
+ * not enable Tailwind directives in its CSS parser.
  */
-@layer base {
-  html {
-    color-scheme: light dark;
-    font-variant-numeric: tabular-nums;
-    -webkit-font-smoothing: antialiased;
-  }
+@custom-variant dark (&:where([data-coja-appearance="dark"], [data-coja-appearance="dark"] *));
 
-  body {
-    background-color: var(--color-zinc-50);
-    color: var(--color-zinc-900);
-  }
+@theme inline {
+  --color-canvas: var(--coja-canvas);
+  --color-chrome: var(--coja-chrome);
+  --color-card: var(--coja-card);
+  --color-overlay: var(--coja-overlay);
+  --color-panel: var(--coja-panel);
+  --color-panel-edge: var(--coja-panel-edge);
+  --color-hover: var(--coja-hover);
+  --color-active: var(--coja-active);
+  --color-hover-alt: var(--coja-hover-alt);
+  --color-ink: var(--coja-ink);
+  --color-muted: var(--coja-muted);
+  --color-faint: var(--coja-faint);
+  --color-edge: var(--coja-edge);
+  --color-edge-strong: var(--coja-edge-strong);
+  --color-focus: var(--coja-focus);
+  --color-accent: var(--coja-accent);
+  --color-accent-ink: var(--coja-accent-ink);
+  --color-accent-soft: var(--coja-accent-soft);
+  --color-ok: var(--coja-ok);
+  --color-ok-soft: var(--coja-ok-soft);
+  --color-danger: var(--coja-danger);
+  --color-danger-soft: var(--coja-danger-soft);
+  --color-caution: var(--coja-caution);
+  --color-caution-soft: var(--coja-caution-soft);
+  --color-code: var(--coja-code);
+  --color-code-ink: var(--coja-code-ink);
+}
 
-  @media (prefers-color-scheme: dark) {
-    body {
-      background-color: var(--color-zinc-950);
-      color: var(--color-zinc-100);
-    }
-  }
+:root {
+  /* Typography preferences (web/src/typography.ts) — applied at runtime by
+       applyTypography; these are first-paint defaults. */
+  --coja-ui-font: system-ui, sans-serif;
+  --coja-code-font: ui-monospace, monospace;
+  --coja-ui-size: 14px;
+  --coja-code-size: 12.5px;
+  --coja-code-line-height: 1.5;
+  --coja-code-ligatures: normal;
+}
+
+html {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  font-family: var(--coja-ui-font);
+  font-size: var(--coja-ui-size);
+}
+
+body {
+  /* Fallbacks for the first paint before main.tsx applies the palette. */
+  background-color: var(--coja-canvas, oklch(0.22813 0.020366 307.469));
+  color: var(--coja-ink, oklch(0.980735 0.004092 301.426));
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--coja-code-font);
+  font-variant-ligatures: var(--coja-code-ligatures);
+}
+
+/* While a panel resize drag is in flight: no text selection, resize cursor everywhere. */
+body.coja-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/*
+   * Thin clue scrollbars: a thin thumb in a quarter-strength ink — visible
+   * enough to show position and remainder, quiet enough to ignore. Standard
+   * properties (Chrome/Safari 18.2+/Firefox all support them) so overlay
+   * scrollbars render thinner and themed; the ::-webkit-scrollbar rules cover
+   * older engines. The file tree gets the same treatment inside its shadow
+   * root (see Sidebar's unsafeCSS).
+   */
+*,
+:before,
+:after {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--coja-ink, #888) 35%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--coja-ink, #888) 35%, transparent);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

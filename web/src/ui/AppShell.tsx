@@ -1,39 +1,79 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { cn, focusRing } from './cn'
 
 export interface AppShellProps {
   /** Rendered after the wordmark as `coja / <breadcrumb>`. */
   breadcrumb?: ReactNode
-  /** Right-aligned header actions. */
+  /** Right-aligned header actions, after the settings gear. */
   actions?: ReactNode
   children: ReactNode
 }
 
+/** The header's settings entry: a gear that leads to /setup. */
+function SettingsLink({ active }: { active: boolean }) {
+  return (
+    <Link
+      to="/setup"
+      aria-label="Settings"
+      title="Settings"
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'flex items-center rounded p-1.5',
+        focusRing,
+        active ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+      )}
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-4"
+      >
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    </Link>
+  )
+}
+
 /**
  * Header + centred content column shared by Setup, Projects and the PR list.
- * The PR review screen uses its own full-bleed layout and does not go through here.
+ * The wordmark is the way home; the breadcrumb names where you are (Setup
+ * renders a "Settings" crumb automatically), evenly spaced as one run of
+ * `coja / crumb`. The PR review screen uses its own full-bleed layout and
+ * does not go through here.
  */
 export function AppShell({ breadcrumb, actions, children }: AppShellProps) {
+  const { pathname } = useLocation()
+  const setupActive = pathname.startsWith('/setup')
+  const crumb = breadcrumb ?? (setupActive ? 'Settings' : null)
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
-        <div className="mx-auto flex h-12 max-w-5xl items-center gap-2 px-4">
+    <div className="min-h-screen bg-canvas text-ink">
+      <header className="sticky top-0 z-10 border-b border-edge bg-chrome/90 backdrop-blur">
+        <div className="mx-auto flex h-12 max-w-5xl items-center gap-2.5 px-4">
           <Link
             to="/"
-            className={cn('rounded-sm text-base font-semibold tracking-tight', focusRing)}
+            className={cn('shrink-0 rounded-sm text-base font-semibold tracking-tight', focusRing)}
           >
             coja
           </Link>
-          {breadcrumb && (
-            <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm">
-              <span aria-hidden="true" className="text-zinc-400 dark:text-zinc-600">
+          {crumb && (
+            <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2.5 text-sm">
+              <span aria-hidden="true" className="select-none text-faint">
                 /
               </span>
-              {breadcrumb}
+              <span className="truncate font-medium">{crumb}</span>
             </nav>
           )}
-          {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <SettingsLink active={setupActive} />
+            {actions && <div className="ml-1.5 flex items-center gap-2">{actions}</div>}
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>

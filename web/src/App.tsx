@@ -7,6 +7,7 @@ import { PullRequestScreen } from './pr/PullRequestScreen'
 import { ProjectsScreen } from './projects/ProjectsScreen'
 import { PullRequestListScreen } from './prs/PullRequestListScreen'
 import { SetupScreen } from './setup/SetupScreen'
+import { ThemeProvider } from './themes/ThemeContext'
 
 const queryClient = createQueryClient()
 
@@ -17,15 +18,17 @@ const queryClient = createQueryClient()
  */
 export function AppRoutes() {
   return (
-    <BootGuard>
-      <Routes>
-        <Route path="/setup" element={<SetupScreen />} />
-        <Route path="/" element={<ProjectsScreen />} />
-        <Route path="/p/:projectId" element={<PullRequestListScreen />} />
-        <Route path="/p/:projectId/pr/:number" element={<PullRequestScreen />} />
-        <Route path="*" element={<NotFoundScreen />} />
-      </Routes>
-    </BootGuard>
+    <ThemeProvider>
+      <BootGuard>
+        <Routes>
+          <Route path="/setup" element={<SetupScreen />} />
+          <Route path="/" element={<ProjectsScreen />} />
+          <Route path="/p/:projectId" element={<PullRequestListScreen />} />
+          <Route path="/p/:projectId/pr/:number" element={<PullRequestScreen />} />
+          <Route path="*" element={<NotFoundScreen />} />
+        </Routes>
+      </BootGuard>
+    </ThemeProvider>
   )
 }
 

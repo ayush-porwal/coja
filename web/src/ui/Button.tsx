@@ -15,19 +15,16 @@ export interface ButtonProps extends ComponentProps<'button'> {
 }
 
 const base = cn(
-  'inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors',
+  'inline-flex shrink-0 cursor-pointer select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors',
   'disabled:cursor-not-allowed disabled:opacity-50',
   focusRing,
 )
 
 const variants: Record<ButtonVariant, string> = {
-  primary:
-    'bg-indigo-600 text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400',
-  secondary:
-    'border border-zinc-300 bg-white text-zinc-800 shadow-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800',
-  danger: 'bg-red-600 text-white hover:bg-red-500',
-  ghost:
-    'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100',
+  primary: 'bg-accent text-accent-ink hover:opacity-90',
+  secondary: 'border border-edge-strong bg-canvas text-ink hover:bg-hover',
+  danger: 'bg-danger text-white hover:opacity-90',
+  ghost: 'text-muted hover:bg-hover hover:text-ink',
 }
 
 const sizes: Record<ButtonSize, { text: string; wide: string; square: string }> = {

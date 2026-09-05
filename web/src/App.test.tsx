@@ -7,7 +7,8 @@ import { currentPath, renderAt } from './test/render'
 it('shows a splash while the setup status loads', () => {
   installMockApi({ 'GET /api/setup/status': () => new Promise(() => {}) })
   renderAt('/')
-  expect(screen.getByText('coja')).toBeDefined()
+  expect(screen.getByRole('img', { name: 'Loading coja' })).toBeDefined()
+  expect(screen.getByText('Loading coja')).toBeDefined()
   expect(screen.queryByRole('heading')).toBeNull()
 })
 

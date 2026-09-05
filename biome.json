@@ -12,7 +12,8 @@
       "!server/public",
       "!server/dist",
       "!pnpm-lock.yaml",
-      "!.delta"
+      "!.delta",
+      "!docs/brand"
     ]
   },
   "formatter": {
@@ -32,6 +33,11 @@
     "enabled": true,
     "rules": {
       "preset": "recommended"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   },
   "assist": {

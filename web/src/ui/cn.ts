@@ -5,10 +5,7 @@ export function cn(...parts: ReadonlyArray<string | false | null | undefined>): 
 
 /** Visible focus ring shared by every interactive element. */
 export const focusRing =
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500'
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus'
 
 /** Inline text link. */
-export const linkClass = cn(
-  'rounded-sm text-indigo-600 hover:underline dark:text-indigo-400',
-  focusRing,
-)
+export const linkClass = cn('rounded-sm text-accent hover:underline', focusRing)

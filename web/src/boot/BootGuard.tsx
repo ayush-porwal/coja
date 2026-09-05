@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router'
 import { useSetupStatus } from '../api/hooks'
+import { BrandLoader } from '../brand/BrandLoader'
 import { Button } from '../ui/Button'
 
 /**
@@ -39,11 +40,38 @@ export function BootGuard({ children }: { children: ReactNode }) {
 }
 
 function Splash() {
+  // Reads the persisted palette + OS appearance directly: the theme provider
+  // mounts later and the splash must be on-theme from the first frame.
+  let paletteId = 'mulberry'
+  let appearance: 'light' | 'dark' = window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
+  try {
+    const raw = localStorage.getItem('coja.theme')
+    if (raw) {
+      const parsed = JSON.parse(raw) as {
+        palette?: string
+        appearance?: string
+      }
+      if (typeof parsed.palette === 'string' && parsed.palette) paletteId = parsed.palette
+      if (parsed.appearance === 'light' || parsed.appearance === 'dark') {
+        appearance = parsed.appearance
+      }
+    }
+  } catch {
+    // unreadable storage: default palette + OS appearance
+  }
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-      <span className="text-2xl font-semibold tracking-tight text-zinc-400 dark:text-zinc-600">
-        coja
-      </span>
+    <div className="flex min-h-screen items-center justify-center bg-canvas">
+      <BrandLoader
+        paletteId={paletteId}
+        appearance={appearance}
+        size="huge"
+        label="Loading coja"
+        /* 2.5x: the full write finishes in ~1.8s, before the status check
+           resolves and the real screen replaces the splash. */
+        speed={2.5}
+      />
     </div>
   )
 }
@@ -58,16 +86,14 @@ function BootError({
   onRetry: () => void
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6 dark:bg-zinc-950">
+    <div className="flex min-h-screen items-center justify-center bg-canvas p-6">
       <div
         role="alert"
-        className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-6 text-zinc-900 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+        className="w-full max-w-md rounded-lg border border-edge bg-card p-6 text-ink shadow-xs"
       >
         <p className="text-base font-semibold tracking-tight">coja can't reach its server</p>
-        <p className="mt-2 break-words font-mono text-xs text-red-600 dark:text-red-400">
-          {message}
-        </p>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 break-words font-mono text-xs text-danger">{message}</p>
+        <p className="mt-2 text-sm text-muted">
           Is <code className="font-mono">coja</code> still running in your terminal? Start it again,
           then retry.
         </p>

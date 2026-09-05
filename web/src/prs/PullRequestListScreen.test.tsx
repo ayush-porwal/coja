@@ -74,7 +74,7 @@ it('shows the empty state and refetches on Refresh', async () => {
   renderAt('/p/p1')
   expect(await screen.findByText('No open pull requests')).toBeDefined()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh pull requests' }))
   await waitFor(() => expect(mock.callsTo('GET', '/api/projects/p1/prs')).toHaveLength(2))
 })
 

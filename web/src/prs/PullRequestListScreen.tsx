@@ -11,6 +11,7 @@ import {
   ErrorNotice,
   focusRing,
   SkeletonRows,
+  Spinner,
 } from '../ui'
 
 const REVIEW_BADGES: Record<MyReviewState, { label: string; tone: BadgeTone } | null> = {
@@ -32,19 +33,25 @@ export function PullRequestListScreen() {
   else if (project.isError) crumb = 'Unknown project'
 
   return (
-    <AppShell
-      breadcrumb={<span className="truncate font-medium">{crumb}</span>}
-      actions={
-        <Button size="sm" onClick={() => void prs.refetch()} loading={prs.isFetching}>
-          Refresh
-        </Button>
-      }
-    >
-      <div className="flex items-baseline justify-between gap-4">
+    <AppShell breadcrumb={<span className="truncate font-medium">{crumb}</span>}>
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold tracking-tight">Open pull requests</h1>
-        {prs.data && prs.data.length > 0 && (
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">{prs.data.length} open</span>
-        )}
+        <div className="flex items-center gap-2">
+          {prs.data && prs.data.length > 0 && (
+            <span className="text-xs text-muted">{prs.data.length} open</span>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            iconOnly
+            aria-label="Refresh pull requests"
+            title="Refresh"
+            disabled={prs.isFetching}
+            onClick={() => void prs.refetch()}
+          >
+            {prs.isFetching ? <Spinner size="sm" /> : <RefreshIcon />}
+          </Button>
+        </div>
       </div>
 
       {project.isError && (
@@ -68,11 +75,11 @@ export function PullRequestListScreen() {
             retrying={prs.isFetching}
           />
         ) : prs.data.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+          <p className="rounded-lg border border-dashed border-edge-strong bg-card px-4 py-10 text-center text-sm text-muted">
             No open pull requests
           </p>
         ) : (
-          <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+          <ul className="divide-y divide-edge rounded-lg border border-edge bg-card">
             {prs.data.map((pr) => (
               <PullRequestRow key={pr.id} pr={pr} projectId={projectId} />
             ))}
@@ -88,9 +95,7 @@ function PullRequestRow({ pr, projectId }: { pr: PullRequestSummary; projectId: 
   const updated = new Date(pr.updatedAt)
   return (
     <li className="flex items-start gap-3 px-4 py-3">
-      <span className="w-12 shrink-0 pt-0.5 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-        #{pr.number}
-      </span>
+      <span className="w-12 shrink-0 pt-0.5 font-mono text-xs text-muted">#{pr.number}</span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link
@@ -101,7 +106,7 @@ function PullRequestRow({ pr, projectId }: { pr: PullRequestSummary; projectId: 
           </Link>
           {pr.isDraft && <Badge>Draft</Badge>}
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
             <Avatar actor={pr.author} />
             {pr.author.login}
@@ -138,16 +143,34 @@ function Avatar({ actor }: { actor: Actor }) {
         width={24}
         height={24}
         loading="lazy"
-        className="size-6 rounded-full bg-zinc-200 dark:bg-zinc-700"
+        className="size-6 rounded-full bg-active"
       />
     )
   }
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-6 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold uppercase text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+      className="inline-flex size-6 items-center justify-center rounded-full bg-active text-[10px] font-semibold uppercase text-muted"
     >
       {actor.login.slice(0, 1)}
     </span>
+  )
+}
+
+function RefreshIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5"
+    >
+      <path d="M13.25 8a5.25 5.25 0 1 1-1.54-3.71" />
+      <path d="M13.5 1.75v2.8h-2.8" />
+    </svg>
   )
 }
