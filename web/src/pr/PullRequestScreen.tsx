@@ -1,20 +1,39 @@
 import type { PullRequestDetail } from '@coja/shared/api'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
+import { BrandLoader } from '../brand/BrandLoader'
+import { useTheme } from '../themes/ThemeContext'
 import { AiPanel } from './ai/AiPanel'
 import { bridge } from './bridge'
 import { DiffView } from './DiffView'
 import { type DiffTarget, useFetchStatus, useFileDiffs, useGitFiles, usePullRequest } from './hooks'
 import { Overview } from './Overview'
+import { PanelResizeHandle } from './PanelResizeHandle'
 import { ReviewDialog } from './ReviewDialog'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
-import { type CenterSelection, isBoolean, isDiffStyle, type ScrollRequest } from './types'
+import {
+  type CenterSelection,
+  type DiffStyle,
+  isBoolean,
+  isDiffStyle,
+  isPanelWidth,
+  type ScrollRequest,
+} from './types'
+import { usePanelShortcuts } from './usePanelShortcuts'
 import { usePersistedState } from './usePersistedState'
 import './pr.css'
 
 const OVERVIEW: CenterSelection = { kind: 'overview' }
 const TOAST_MS = 3500
+
+/** Panel width bounds in px (drag clamps live; the validator bounds storage). */
+export const TREE_PANEL_MIN = 200
+export const TREE_PANEL_MAX = 460
+export const TREE_PANEL_DEFAULT = 288
+export const AI_PANEL_MIN = 300
+export const AI_PANEL_MAX = 640
+export const AI_PANEL_DEFAULT = 380
 
 /** Route: `/p/:projectId/prs/:number` (any route providing these params works). */
 export function PullRequestScreen() {
@@ -22,10 +41,10 @@ export function PullRequestScreen() {
   const number = Number.parseInt(numberParam, 10)
   if (!projectId || !Number.isInteger(number) || number <= 0) {
     return (
-      <main className="flex h-dvh items-center justify-center bg-white p-6 text-sm text-zinc-600 dark:bg-zinc-950 dark:text-zinc-300">
+      <main className="flex h-dvh items-center justify-center bg-canvas p-6 text-sm text-muted">
         <p>
           Invalid pull request route.{' '}
-          <Link to="/" className="text-blue-600 underline dark:text-blue-400">
+          <Link to="/" className="text-accent underline">
             Back to projects
           </Link>
         </p>
@@ -46,6 +65,7 @@ interface ReviewScreenProps {
 /** The three-zone review screen (design.md §3). Full-bleed; no AppShell. */
 function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   const pr = usePullRequest(projectId, number)
+  const { palette, appearance } = useTheme()
   const fetch = useFetchStatus(projectId, number)
   const ready = fetch.status?.state === 'ready'
   const gitFiles = useGitFiles(projectId, number, ready)
@@ -65,14 +85,63 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   const nonce = useRef(0)
   const [diffStyle, setDiffStyle] = usePersistedState('coja.diffStyle', 'unified', isDiffStyle)
   const [aiOpen, setAiOpen] = usePersistedState('coja.aiPanelOpen', true, isBoolean)
+  const [treeOpen, setTreeOpen] = usePersistedState('coja.fileTreePanelOpen', true, isBoolean)
+  const [treeWidth, setTreeWidth] = usePersistedState(
+    'coja.treePanelWidth',
+    TREE_PANEL_DEFAULT,
+    isPanelWidth,
+  )
+  const [aiWidth, setAiWidth] = usePersistedState(
+    'coja.aiPanelWidth',
+    AI_PANEL_DEFAULT,
+    isPanelWidth,
+  )
   const [reviewOpen, setReviewOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [chipCount, setChipCount] = useState(0)
+
+  const treeAside = useRef<HTMLElement | null>(null)
+  const aiAside = useRef<HTMLElement | null>(null)
+
+  // Collapsing a panel that holds the keyboard focus would drop focus onto
+  // <body>; park it on the panel's toggle instead.
+  const moveFocusToToggle = useCallback((aside: HTMLElement | null, toggleId: string) => {
+    const active = document.activeElement
+    if (aside && active !== null && active !== document.body && aside.contains(active)) {
+      document.getElementById(toggleId)?.focus()
+    }
+  }, [])
+  const toggleTree = useCallback(() => {
+    moveFocusToToggle(treeAside.current, 'coja-toggle-tree')
+    setTreeOpen((open) => !open)
+  }, [moveFocusToToggle, setTreeOpen])
+  const toggleAi = useCallback(() => {
+    moveFocusToToggle(aiAside.current, 'coja-toggle-ai')
+    setAiOpen((open) => !open)
+  }, [moveFocusToToggle, setAiOpen])
+  usePanelShortcuts({ onToggleTree: toggleTree, onToggleAi: toggleAi })
 
   const openFile = useCallback((path: string, line?: number, side?: ScrollRequest['side']) => {
     nonce.current += 1
     setSelection({ kind: 'file', path })
     setScrollRequest({ path, line, side, nonce: nonce.current })
   }, [])
+
+  // The top bar's Changes segments: switch the layout, and leave Conversation
+  // for the first changed file (the top of the diff) without forcing a jump
+  // when the reviewer is already reading deeper into the diff.
+  const selectChanges = useCallback(
+    (style: DiffStyle) => {
+      setDiffStyle(style)
+      setSelection((prev) => {
+        if (prev.kind === 'file') return prev
+        const first = pr.data?.files[0]?.path
+        return first ? { kind: 'file', path: first } : prev
+      })
+    },
+    [pr.data, setDiffStyle],
+  )
+  const selectConversation = useCallback(() => setSelection(OVERVIEW), [])
 
   // Citations in AI output navigate the diff; "Ask AI" reveals the panel.
   useEffect(
@@ -90,7 +159,7 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   const detail: PullRequestDetail | undefined = pr.data
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="flex h-dvh flex-col bg-canvas text-ink">
       <TopBar
         projectId={projectId}
         number={number}
@@ -98,16 +167,31 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
         fetchStatus={fetch.status}
         fetchError={fetch.error}
         onRetryFetch={fetch.retry}
+        view={selection.kind === 'overview' ? 'conversation' : 'changes'}
         diffStyle={diffStyle}
-        onDiffStyleChange={setDiffStyle}
+        onConversation={selectConversation}
+        onChanges={selectChanges}
+        treeOpen={treeOpen}
+        onToggleTree={toggleTree}
         aiOpen={aiOpen}
-        onToggleAi={() => setAiOpen((open) => !open)}
+        onToggleAi={toggleAi}
+        threadCount={detail?.threads.length ?? 0}
+        chipCount={chipCount}
         onOpenReview={() => setReviewOpen(true)}
       />
 
       {detail ? (
         <div className="flex min-h-0 flex-1">
-          <aside className="flex w-72 shrink-0 flex-col border-zinc-200 border-r dark:border-zinc-800">
+          {/* Kept mounted while collapsed so the tree keeps its expansion and scroll state.
+              The width is capped at half the viewport (minus the other panel's share) so a
+              narrow window can never squeeze the diff away — CSS recomputes live on resize. */}
+          <aside
+            ref={treeAside}
+            hidden={!treeOpen}
+            style={{ width: `min(${treeWidth}px, calc(50vw - 140px))` }}
+            className="flex shrink-0 flex-col border-edge border-r bg-panel"
+            aria-label="File tree"
+          >
             <Sidebar
               files={detail.files}
               threads={detail.threads}
@@ -117,6 +201,16 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
               onSelectFile={(path) => openFile(path)}
             />
           </aside>
+          {treeOpen && (
+            <PanelResizeHandle
+              side="left"
+              width={treeWidth}
+              onResize={setTreeWidth}
+              label="Resize file tree panel"
+              min={TREE_PANEL_MIN}
+              max={TREE_PANEL_MAX}
+            />
+          )}
 
           <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {selection.kind === 'overview' ? (
@@ -142,46 +236,59 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
             )}
           </main>
 
-          {/* Kept mounted while collapsed so attached chips survive the toggle. */}
+          {aiOpen && (
+            <PanelResizeHandle
+              side="right"
+              width={aiWidth}
+              onResize={setAiWidth}
+              label="Resize AI panel"
+              min={AI_PANEL_MIN}
+              max={AI_PANEL_MAX}
+            />
+          )}
+          {/* Kept mounted while collapsed so attached chips survive the toggle (same viewport cap as the tree). */}
           <aside
+            ref={aiAside}
             hidden={!aiOpen}
-            className="flex w-[380px] shrink-0 flex-col border-zinc-200 border-l dark:border-zinc-800"
+            style={{ width: `min(${aiWidth}px, calc(50vw - 140px))` }}
+            className="flex shrink-0 flex-col border-edge border-l bg-panel"
             aria-label="AI panel"
           >
-            <AiPanel projectId={projectId} number={number} detail={detail} />
+            <AiPanel
+              projectId={projectId}
+              number={number}
+              detail={detail}
+              onChipsChange={setChipCount}
+            />
           </aside>
-          {!aiOpen && (
-            <div className="flex w-9 shrink-0 flex-col items-center border-zinc-200 border-l pt-2 dark:border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setAiOpen(true)}
-                title="Show AI panel"
-                className="rounded border border-zinc-300 px-1.5 py-1 font-medium text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                AI
-              </button>
-            </div>
-          )}
         </div>
       ) : (
         <div
-          className="flex flex-1 items-center justify-center p-6 text-sm text-zinc-500"
+          className="flex flex-1 items-center justify-center p-6 text-sm text-muted"
           role="status"
         >
           {pr.isError ? (
-            <div className="max-w-md rounded-md border border-red-300 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+            <div className="max-w-md rounded-md border border-danger bg-danger-soft p-4 text-danger">
               <p className="font-medium">Could not load pull request #{number}</p>
               <p className="mt-1 break-words text-xs">{pr.error.message}</p>
               <button
                 type="button"
                 onClick={() => void pr.refetch()}
-                className="mt-3 rounded bg-red-600 px-3 py-1 font-medium text-white text-xs hover:bg-red-700"
+                className="mt-3 rounded bg-danger px-3 py-1 font-medium text-xs text-white hover:opacity-90"
               >
                 Retry
               </button>
             </div>
           ) : (
-            <p>Loading pull request…</p>
+            <BrandLoader
+              paletteId={palette.id}
+              appearance={appearance}
+              size="large"
+              label="Loading pull request…"
+              /* Same rationale as the boot splash: 2.5x finishes the write
+                 about when the detail query resolves. */
+              speed={2.5}
+            />
           )}
         </div>
       )}
@@ -199,7 +306,7 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
       )}
 
       {toast && (
-        <output className="fixed bottom-4 left-1/2 z-50 block -translate-x-1/2 rounded-md bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+        <output className="fixed bottom-4 left-1/2 z-50 block -translate-x-1/2 rounded-md bg-ink px-4 py-2 text-sm text-canvas shadow-lg">
           {toast}
         </output>
       )}

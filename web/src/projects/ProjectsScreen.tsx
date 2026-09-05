@@ -2,31 +2,22 @@ import type { Project } from '@coja/shared/api'
 import { Link } from 'react-router'
 import { useDeleteProject, useProjects } from '../api/hooks'
 import { AppShell, Badge, Button, cn, ErrorNotice, focusRing, SkeletonRows } from '../ui'
+import { BrandLoader } from '../brand/BrandLoader'
+import { useTheme } from '../themes/ThemeContext'
 import { AddProjectPanel } from './AddProjectPanel'
 
 /** Home (design §2): the project list plus the add-project panel. */
 export function ProjectsScreen() {
   const projects = useProjects()
   const isEmpty = projects.data?.length === 0
+  const { palette, appearance } = useTheme()
 
   return (
-    <AppShell
-      actions={
-        <Link
-          to="/setup"
-          className={cn(
-            'rounded-sm text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100',
-            focusRing,
-          )}
-        >
-          Setup
-        </Link>
-      }
-    >
+    <AppShell>
       <div className="flex items-baseline justify-between gap-4">
         <h1 className="text-lg font-semibold tracking-tight">Projects</h1>
         {projects.data && projects.data.length > 0 && (
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="text-xs text-muted">
             {projects.data.length} {projects.data.length === 1 ? 'project' : 'projects'}
           </span>
         )}
@@ -47,6 +38,13 @@ export function ProjectsScreen() {
         )}
       </div>
 
+      {isEmpty ? (
+        /* The handwritten CJ mark in the active theme welcomes an empty home;
+           the loader is decorative (aria-hidden via its own role=img handling). */
+        <div className="mt-8 flex justify-center" aria-hidden="true">
+          <BrandLoader paletteId={palette.id} appearance={appearance} size="large" />
+        </div>
+      ) : null}
       <AddProjectPanel intro={isEmpty} className="mt-6" />
     </AppShell>
   )
@@ -63,7 +61,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
 
   return (
     <div>
-      <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+      <ul className="divide-y divide-edge rounded-lg border border-edge bg-card">
         {projects.map((project) => (
           <ProjectRow
             key={project.id}
@@ -74,7 +72,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
         ))}
       </ul>
       {remove.isError && (
-        <p role="alert" className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-2 text-xs font-medium text-danger">
           {remove.error.message}
         </p>
       )}
@@ -105,9 +103,7 @@ function ProjectRow({
             {project.kind === 'local' ? 'local clone' : 'cloned'}
           </Badge>
         </div>
-        <div className="mt-0.5 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
-          {project.path}
-        </div>
+        <div className="mt-0.5 truncate font-mono text-xs text-muted">{project.path}</div>
       </Link>
       <Button
         variant="ghost"
