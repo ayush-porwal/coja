@@ -20,7 +20,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 - [x] Add project by local clone path (origin auto-detected) and by `owner/repo` (bare clone into app storage) — both via API; local path also via the UI form (browser)
 - [x] PR list: title, author, branch, updated-at, my review state (browser: 'Commented' badge on #1)
 - [x] PR screen: background fetch of `pull/<n>/head`, metadata immediately (browser: Overview renders at once, pill Fetching→Ready)
-- [~] Continuous lazily-rendered diff (`@pierre/diffs`), stacked/split toggle — renders + highlights; BUG open: tree jump-scroll lands off-target (virtualizer height estimate), fix agent running
+- [x] Continuous lazily-rendered diff (`@pierre/diffs` CodeView), stacked/split toggle — jump-scroll fixed (row metrics aligned with the virtual layout, zero-height heal, scroll retrier, highlighter preload); browser: six consecutive jumps incl. into/out of the 2400-line file all land at top 0
 - [x] Changed-files tree (`@pierre/trees`) with change types, comment badges, viewed checkmarks; Overview entry (browser)
 - [x] Validation: browser run against fixture PR (#1 and bot PR #2)
 
@@ -41,7 +41,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 
 ## Cross-cutting
 - [x] E2E fixture repo `coja-e2e-fixture` with PR #1 (adds, edits, rename, large file) — see e2e-fixture.md
-- [~] Invariant audit — round 1 (Opus, server stages 2–4): Invariant 1 PASS, Invariant 2 PASS structurally; CSRF/DNS-rebinding gap (C1) + M3–M6/L7–L14 fixed and guard verified over HTTP. Round 2 (Opus, AI layer + guard + web): Invariant 1 PASS, Invariant 2 PASS, guard closes the cross-origin hole (with documented caveats); all findings fixed (H1 remote images, M2 CSP, M3 wildcard bind, M4 chat caps/pruning, M5 rename-aware Ask AI, L6–L11) and re-verified (544 tests, CSP headers live).
+- [x] Invariant audit — round 1 (Opus, server stages 2–4): Invariant 1 PASS, Invariant 2 PASS structurally; CSRF/DNS-rebinding gap (C1) + M3–M6/L7–L14 fixed and guard verified over HTTP. Round 2 (Opus, AI layer + guard + web): Invariant 1 PASS, Invariant 2 PASS, guard closes the cross-origin hole (with documented caveats); all findings fixed (H1 remote images, M2 CSP, M3 wildcard bind, M4 chat caps/pruning, M5 rename-aware Ask AI, L6–L11) and re-verified (544 tests, CSP headers live).
 
 ## Resume notes (written 2026-09-04 23:55, before a usage-limit pause)
 
