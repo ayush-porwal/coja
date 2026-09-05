@@ -4,7 +4,12 @@ import { z } from 'zod'
 import { handleChatTurn } from '../ai/chat-handler.js'
 import { createChat, deleteChat, getChat, listChats } from '../ai/chats.js'
 import { buildSystemPrompt } from '../ai/prompt.js'
-import { defaultModelId, parseModelId } from '../ai/providers.js'
+import {
+  type CustomProviderSource,
+  defaultModelId,
+  parseModelId,
+  type SubscriptionProvider,
+} from '../ai/providers.js'
 import { describeTools } from '../ai/tools.js'
 import type { ServerContext } from '../context.js'
 import { diffNameStatus } from '../git/plumbing.js'
@@ -40,6 +45,10 @@ export interface ChatRouteDeps {
   fetcher: PrFetcher
   /** Read-only PR detail (title, body, files with stats) — the Forge's `getPullRequest`, and only that. */
   readPullRequest: (project: Project, number: number) => Promise<PullRequestDetail>
+  /** The connected ChatGPT subscription, when the user signed in. */
+  subscription?: SubscriptionProvider
+  /** Custom provider lookup (Setup's added endpoints), for model validation + resolution. */
+  customProviders?: CustomProviderSource
   /** Test seam: swap the provider lookup for a mock model. */
   resolveModel?: (id: string, secrets: SecretStore) => Promise<LanguageModel>
 }
@@ -62,6 +71,7 @@ const chatRequestSchema = z.object({
       `a conversation may hold at most ${MAX_MESSAGES} messages; start a new chat`,
     ),
   model: z.string().min(1),
+  reasoningEffort: z.string().min(1).max(32).optional(),
 })
 
 export function registerChatRoutes(app: Hono, ctx: ServerContext, deps: ChatRouteDeps): void {
@@ -104,9 +114,9 @@ export function registerChatRoutes(app: Hono, ctx: ServerContext, deps: ChatRout
   app.post(CHATS_ROUTE, async (c) => {
     const { project, number } = resolvePr(ctx, c)
     const body = parse(newChatSchema, await readJsonBody(c))
-    const model = body.model ?? (await defaultModelId(secrets))
+    const model = body.model ?? (await defaultModelId(deps.subscription))
     if (!model) throw new HttpError(400, 'No AI provider configured', 'provider')
-    parseModelId(model)
+    parseModelId(model, deps.customProviders)
     return c.json<Chat>(createChat(ctx.db, { projectId: project.id, prNumber: number, model }), 201)
   })
 
@@ -127,7 +137,23 @@ export function registerChatRoutes(app: Hono, ctx: ServerContext, deps: ChatRout
     const { chat } = loadChat(c, project, number)
     const body = parse(chatRequestSchema, await readJsonBody(c))
     // An unknown model is a 400 here, before the fetch-state check and whichever model resolver runs.
-    parseModelId(body.model)
+    const { provider, modelId } = parseModelId(body.model)
+    // A requested reasoning effort must be one the backend catalog offers for
+    // this model (subscription path); other providers do not take one from coja.
+    if (body.reasoningEffort && provider === 'chatgpt') {
+      const ok =
+        deps.subscription &&
+        (await deps.subscription
+          .supportsReasoningEffort(modelId, body.reasoningEffort)
+          .catch(() => false))
+      if (!ok) {
+        throw new HttpError(
+          400,
+          `reasoning effort "${body.reasoningEffort}" is not offered for ${modelId}; pick one from the model's list`,
+          'provider',
+        )
+      }
+    }
     const { headOid, mergeBaseOid, detail, files } = await loadPr(project, number)
     return handleChatTurn({
       db: ctx.db,
@@ -144,6 +170,9 @@ export function registerChatRoutes(app: Hono, ctx: ServerContext, deps: ChatRout
       detail,
       files,
       signal: c.req.raw.signal,
+      customProviders: deps.customProviders,
+      ...(body.reasoningEffort ? { reasoningEffort: body.reasoningEffort } : {}),
+      ...(deps.subscription ? { subscription: deps.subscription } : {}),
       ...(deps.resolveModel ? { languageModel: await deps.resolveModel(body.model, secrets) } : {}),
     })
   })

@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Hono } from 'hono'
+import { getCustomProvider } from './custom-providers.js'
 import { packageVersion } from './paths.js'
 import { registerChatRoutes } from './routes/chat.js'
+import { registerFsRoutes } from './routes/fs.js'
 import { registerGitRoutes } from './routes/git.js'
 import { registerRequestGuard } from './routes/guard.js'
 import { onApiError } from './routes/http.js'
@@ -90,8 +92,9 @@ export function createApp(opts: AppOptions) {
   })
 
   if (opts.services) {
-    const { ctx, forge, fetcher, secrets, ghAuthStatus } = opts.services
-    registerSetupRoutes(app, ctx, { secrets, ghAuthStatus })
+    const { ctx, forge, fetcher, secrets, ghAuthStatus, chatgpt } = opts.services
+    registerSetupRoutes(app, ctx, { secrets, ghAuthStatus, chatgpt })
+    registerFsRoutes(app)
     registerProjectRoutes(app, ctx)
     registerGitRoutes(app, ctx, { forge, fetcher })
     registerPullRoutes(app, ctx, { forge })
@@ -100,6 +103,8 @@ export function createApp(opts: AppOptions) {
     registerChatRoutes(app, ctx, {
       secrets,
       fetcher,
+      subscription: chatgpt,
+      customProviders: (id) => getCustomProvider(ctx.db, id),
       readPullRequest: (p, n) => forge.getPullRequest({ owner: p.owner, repo: p.repo }, n),
     })
   }

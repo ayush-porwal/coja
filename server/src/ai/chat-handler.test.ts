@@ -1,5 +1,5 @@
 import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { type Db, openDb } from '../db.js'
 import { diffNameStatus } from '../git/plumbing.js'
 import { createFixture, type Fixture } from '../git/test-fixture.js'
@@ -401,14 +401,17 @@ describe('handleChatTurn', () => {
     expect(stored).not.toContain('older tool result omitted')
   })
 
-  it('reports a missing provider key as a 400 with code provider, without a network call', async () => {
-    const err = await handleChatTurn(params(newChat())).catch((e: unknown) => e)
+  it('reports an unknown custom provider as a 400 with code provider, without a network call', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const err = await handleChatTurn(
+      params(newChat(), { model: 'custom-ghost:m', customProviders: () => undefined }),
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    )
     expect(err).toBeInstanceOf(HttpError)
-    expect(err).toMatchObject({
-      status: 400,
-      code: 'provider',
-      message: 'No API key configured for OpenAI. Add one in Setup.',
-    })
+    expect(err).toMatchObject({ status: 400, code: 'bad_request' })
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('persists the partial answer when the client aborts mid-stream', async () => {

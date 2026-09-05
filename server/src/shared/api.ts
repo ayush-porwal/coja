@@ -22,18 +22,39 @@ export const API_ROUTES = {
   // Setup
   /** GET → SetupStatus */
   setupStatus: '/api/setup/status',
-  /** POST SaveKeyRequest → SaveKeyResponse (validates the key with the provider first) */
-  setupKey: '/api/setup/key',
-  /** DELETE → { ok: true } (query: ?provider=openai|anthropic) */
-  setupKeyDelete: (provider: ProviderId) => `/api/setup/key?provider=${provider}`,
+  /** POST AddCustomProviderRequest → { customProviders } — a user-added endpoint. */
+  setupCustomProviders: '/api/setup/custom-providers',
+  /** DELETE → { ok: true } — removes the provider config and its stored key. */
+  setupCustomProviderDelete: (id: string) =>
+    `/api/setup/custom-providers/${encodeURIComponent(id)}`,
+  /**
+   * POST FetchCustomModelsRequest → FetchCustomModelsResponse — asks the
+   * endpoint for its model list. Best effort: many compatible endpoints
+   * don't implement it, and the form's manual entry always works.
+   */
+  setupCustomModels: '/api/setup/custom-providers/models',
   /** POST → SetupStatus. Marks the AI step done (saved a key or skipped). */
   setupComplete: '/api/setup/complete',
+
+  // ChatGPT subscription
+  /** POST → { ok: true, authUrl } — starts the browser sign-in flow. */
+  setupChatgptConnect: '/api/setup/chatgpt/connect',
+  /** GET → ChatGptConnectStatus — polled while the browser flow is open. */
+  setupChatgptStatus: '/api/setup/chatgpt/status',
+  /** DELETE → { ok: true } — forget tokens (there is no upstream revoke). */
+  setupChatgptDisconnect: '/api/setup/chatgpt/disconnect',
 
   // Projects
   /** GET → Project[] ; POST AddProjectRequest → Project */
   projects: '/api/projects',
   /** GET → Project ; DELETE → { ok: true } */
   project: (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}`,
+
+  // Filesystem browsing (Add project → local clone)
+  /** GET → { home: string } — the server user's home directory, the picker's start point. */
+  fsHome: '/api/fs/home',
+  /** GET ?path=&prefix=&limit= → DirListing — subdirectories of `path`, names only, capped. */
+  fsDirs: '/api/fs/dirs',
 
   // Pull requests
   /** GET → PullRequestSummary[] (open PRs, newest update first) */
@@ -108,9 +129,83 @@ export type DiffSide = 'LEFT' | 'RIGHT'
 // Setup
 // ---------------------------------------------------------------------------
 
-export type ProviderId = 'openai' | 'anthropic'
+/** Wire protocol a custom endpoint speaks. */
+export type CustomApiFormat = 'openai' | 'anthropic'
 
-export const PROVIDERS: readonly ProviderId[] = ['openai', 'anthropic']
+/**
+ * A user-added model provider (Setup → "Add model provider"): any endpoint
+ * that speaks the OpenAI chat-completions or the Anthropic messages protocol
+ * at a custom base URL — DeepSeek, OpenRouter, an Anthropic proxy, a local
+ * Ollama/LM Studio. Models are curated by hand: there is no assumed
+ * models-list endpoint to discover them from.
+ */
+/** One model of a custom provider: the wire id plus an optional display name. */
+export interface CustomProviderModel {
+  /** Sent to the endpoint, e.g. `glm-5.3-flash`. */
+  id: string
+  /** Shown in the model picker, e.g. `GLM-5.3-Flash`. Defaults to the id. */
+  label?: string
+}
+
+export interface CustomProviderConfig {
+  /** `custom-<slug of name>`. Also the keychain account namespace. */
+  id: string
+  name: string
+  /** Includes the path prefix, e.g. `https://api.deepseek.com/v1`. */
+  baseUrl: string
+  apiFormat: CustomApiFormat
+  /** The user's curated models: ids sent to the API, labels shown in the picker. */
+  models: CustomProviderModel[]
+}
+
+/**
+ * POST /api/setup/custom-providers body. The key is stored, never returned.
+ * Key semantics: a non-empty `apiKey` stores/replaces the stored key; an
+ * absent or empty one leaves any stored key untouched (so an edit that only
+ * renames or re-models a provider does not silently drop its key).
+ */
+export interface AddCustomProviderRequest {
+  name: string
+  baseUrl: string
+  apiFormat: CustomApiFormat
+  /**
+   * Ids with optional display names. Strings are accepted too (an id with no
+   * label) — the server normalizes everything to `CustomProviderModel`.
+   */
+  models: (string | CustomProviderModel)[]
+  /** Optional: local endpoints (Ollama) often need none. */
+  apiKey?: string
+}
+
+/** A config plus whether a key is stored — facts only, never key material. */
+export type CustomProviderSummary = CustomProviderConfig & { hasKey: boolean }
+
+/** POST /api/setup/custom-providers response. */
+export interface CustomProvidersResponse {
+  customProviders: CustomProviderSummary[]
+}
+
+/**
+ * POST /api/setup/custom-providers/models body. Either an existing provider
+ * id (its stored key is used when no key is typed — the form never shows it
+ * again) or an explicit base URL + format with an optional key.
+ */
+export interface FetchCustomModelsRequest {
+  id?: string
+  baseUrl?: string
+  apiFormat?: CustomApiFormat
+  apiKey?: string
+}
+
+export interface FetchedCustomModel {
+  id: string
+  /** The endpoint's display name, when it offers one (Anthropic does). */
+  label?: string
+}
+
+export interface FetchCustomModelsResponse {
+  models: FetchedCustomModel[]
+}
 
 export interface GhAuthStatus {
   ok: boolean
@@ -123,23 +218,71 @@ export interface GhAuthStatus {
 
 export interface SetupStatus {
   gh: GhAuthStatus
-  providers: Record<ProviderId, { configured: boolean }>
+  /** User-added custom endpoints, configs only — keys never leave the server. */
+  customProviders: CustomProviderSummary[]
   secrets: {
     /** 'keychain' when the OS keychain works; 'file' when we fell back to a 0600 file in the data dir. */
     backend: 'keychain' | 'file'
   }
   /** True once the user has saved a key or explicitly skipped the AI step. */
   setupComplete: boolean
+  /** ChatGPT-subscription connection; `connected` mirrors `providers.chatgpt.configured`. */
+  chatgpt: ChatGptConnectionStatus
 }
 
-export interface SaveKeyRequest {
-  provider: ProviderId
-  apiKey: string
+/** Connection facts only — never token material. */
+export interface ChatGptConnectionStatus {
+  connected: boolean
+  /** Unverified account metadata from the signed-in token's JWT claims. */
+  email?: string
+  plan?: string
+  /** A refresh died terminally: the user must reconnect. */
+  authExpired?: boolean
+  /** Failure of the last sign-in attempt (port busy, cancelled, refused). */
+  connectError?: string
 }
 
-export interface SaveKeyResponse {
-  ok: true
-  provider: ProviderId
+/** Live state of the browser sign-in flow, polled by the Setup screen. */
+export interface ChatGptConnectStatus {
+  status: 'connecting' | 'connected' | 'idle'
+  connected: boolean
+  email?: string
+  plan?: string
+  authExpired?: boolean
+  connectError?: string
+}
+
+// ---------------------------------------------------------------------------
+// ChatGPT-subscription error marker (server → web convention)
+// ---------------------------------------------------------------------------
+
+export type ChatGptErrorCode =
+  | 'state_mismatch'
+  | 'auth_expired'
+  | 'quota'
+  | 'endpoint_changed'
+  | 'transport'
+
+/**
+ * Chat-turn failures of the subscription provider reach the browser as the
+ * stream's error text. Codex failures are self-marked with this prefix so the
+ * chat panel can offer honest actions (reconnect, switch to an API key)
+ * without the chat handler knowing which billing path is active.
+ */
+export const CHATGPT_MARKER_PREFIX = '[coja:chatgpt:'
+
+export const CHATGPT_MARKER_PATTERN =
+  /^\[coja:chatgpt:(state_mismatch|auth_expired|quota|endpoint_changed|transport)\]\s?/
+
+export const markChatGptError = (code: ChatGptErrorCode, message: string): string =>
+  `${CHATGPT_MARKER_PREFIX}${code}] ${message}`
+
+export function parseChatGptMarker(
+  message: string,
+): { code: ChatGptErrorCode; text: string } | null {
+  const match = CHATGPT_MARKER_PATTERN.exec(message)
+  if (!match) return null
+  return { code: match[1] as ChatGptErrorCode, text: message.slice(match[0].length) }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +307,26 @@ export interface Project {
 export type AddProjectRequest =
   | { kind: 'local'; path: string }
   | { kind: 'clone'; slug: string /* owner/repo, or a github.com URL */ }
+
+/** One subdirectory in a `DirListing`. `hasGit` marks a likely clone (a `.git` entry). */
+export interface DirEntry {
+  name: string
+  hasGit: boolean
+}
+
+/**
+ * Subdirectories of one directory — the Add-project picker's building block.
+ * Deliberately names only: no files, no contents, no disk-wide search. `dirs`
+ * is capped (`limit`, default ${'`'}500${'`'}); `total`/`truncated` describe the pre-cap match count.
+ */
+export interface DirListing {
+  path: string
+  /** The parent directory, or null at the filesystem root. */
+  parent: string | null
+  dirs: DirEntry[]
+  total: number
+  truncated: boolean
+}
 
 // ---------------------------------------------------------------------------
 // Pull requests
@@ -407,12 +570,28 @@ export interface SubmitReviewResponse {
 // AI
 // ---------------------------------------------------------------------------
 
+export interface ModelReasoningEffort {
+  effort: string
+  /** Backend-provided one-liner, e.g. "Balances speed and reasoning depth". */
+  description?: string
+}
+
 export interface ModelInfo {
-  /** `<provider>:<model id>`, e.g. `openai:gpt-5-mini`. */
+  /** `<provider>:<model id>`, e.g. `openai:gpt-5-mini` or `custom-deepseek:deepseek-chat`. */
   id: string
-  provider: ProviderId
+  /** `chatgpt`, or a custom provider id (`custom-<slug>`). */
+  provider: string
   modelId: string
   label: string
+  /** Display name of the provider, when it is not a built-in (custom providers). */
+  providerLabel?: string
+  /**
+   * Reasoning efforts the backend catalog offers for this model, cheapest
+   * first, when the provider publishes them (ChatGPT subscription only).
+   */
+  reasoningEfforts?: ModelReasoningEffort[]
+  /** The catalog's default effort for this model. */
+  defaultReasoningEffort?: string
 }
 
 export interface Chat {
@@ -470,6 +649,8 @@ export interface ChatMessageMetadata {
 export interface ChatRequest {
   messages: unknown[]
   model: string
+  /** Requested reasoning effort; must be one of the model's `reasoningEfforts`. */
+  reasoningEffort?: string
 }
 
 export interface ChatWithMessages {

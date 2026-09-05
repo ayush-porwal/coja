@@ -12,7 +12,7 @@ import { createFixture, type Fixture } from '../git/test-fixture.js'
 import { PrFetcher } from '../pr/fetcher.js'
 import { addLocalProject } from '../projects/add.js'
 import { insertProject } from '../projects/store.js'
-import { MemorySecretStore, providerKeyName } from '../secrets/store.js'
+import { MemorySecretStore } from '../secrets/store.js'
 import {
   type AiContextResponse,
   API_ROUTES,
@@ -25,7 +25,14 @@ import {
 import { MAX_BODY_BYTES, MAX_MESSAGES, registerChatRoutes } from './chat.js'
 import { onApiError } from './http.js'
 
-const MODEL = 'openai:gpt-5-mini'
+const MODEL = 'custom-deepseek:deepseek-chat'
+const CUSTOM_DEEPSEEK = {
+  id: 'custom-deepseek',
+  name: 'DeepSeek',
+  baseUrl: 'https://api.deepseek.com/v1',
+  apiFormat: 'openai' as const,
+  models: [{ id: 'deepseek-chat' }],
+}
 
 let fx: Fixture
 let ctx: ServerContext
@@ -123,6 +130,7 @@ beforeAll(async () => {
   registerChatRoutes(app, ctx, {
     secrets,
     fetcher,
+    customProviders: (id) => (id === 'custom-deepseek' ? CUSTOM_DEEPSEEK : undefined),
     readPullRequest: async (p, n) => {
       readCalls.push(n)
       return fakeDetail(p, n)
@@ -178,25 +186,33 @@ describe('chat routes', () => {
       title: null,
     })
 
-    await secrets.set(providerKeyName('anthropic'), 'sk-ant-test')
-    const dflt = await post<Chat>(API_ROUTES.prChats(project.id, 1), {})
-    expect(dflt.status).toBe(201)
-    expect(dflt.body.model).toBe('anthropic:claude-sonnet-4-5')
+    // Without a connected subscription there is no default model.
+    const dflt = await post<ApiError>(API_ROUTES.prChats(project.id, 1), {})
+    expect(dflt.status).toBe(400)
+    expect(dflt.body.code).toBe('provider')
 
-    for (const model of ['gpt-5', 'gemini:pro', ':x', 'openai:', 'openai:gpt-9', 'anthropic:x']) {
+    for (const model of [
+      'gpt-5',
+      'gemini:pro',
+      ':x',
+      'openai:',
+      'chatgpt:../../x',
+      'custom-nope:m',
+    ]) {
       const res = await post<ApiError>(API_ROUTES.prChats(project.id, 1), { model })
       expect(res.status, model).toBe(400)
       expect(res.body.code).toBe('bad_request')
     }
-    // Only curated model ids are accepted; the error lists them.
-    const unknown = await post<ApiError>(API_ROUTES.prChats(project.id, 1), {
-      model: 'openai:gpt-9',
+    // Known provider, unknown model id: the id is relayed to the provider, so
+    // it must at least be slug-shaped.
+    const unknown = await post<Chat>(API_ROUTES.prChats(project.id, 1), {
+      model: 'custom-deepseek:deepseek-chat',
     })
-    expect(unknown.body.error).toContain('accepted: openai:gpt-5, openai:gpt-5-mini')
+    expect(unknown.status).toBe(201)
 
     const list = await get<Chat[]>(API_ROUTES.prChats(project.id, 1))
     expect(list.body.map((c) => c.id)).toEqual(
-      expect.arrayContaining([explicit.body.id, dflt.body.id]),
+      expect.arrayContaining([explicit.body.id, unknown.body.id]),
     )
     expect(list.body).toHaveLength(2)
     expect((await get<Chat[]>(API_ROUTES.prChats(project.id, 2))).body).toEqual([])
@@ -285,7 +301,7 @@ describe('chat routes', () => {
       }),
     ).toEqual({
       status: 400,
-      body: { error: 'No API key configured for OpenAI. Add one in Setup.', code: 'provider' },
+      body: { error: 'Unknown model provider "custom-deepseek".', code: 'provider' },
     })
     for (const body of [
       { messages: 'nope', model: MODEL },
@@ -314,7 +330,7 @@ describe('chat routes', () => {
     const model = await post<ApiError>(url, { messages: [userMessage], model: 'openai:gpt-9' })
     expect(model.status).toBe(400)
     expect(model.body).toMatchObject({ code: 'bad_request' })
-    expect(model.body.error).toContain('accepted: openai:gpt-5')
+    expect(model.body.error).toContain('unknown model provider "openai"')
 
     const many = Array.from({ length: MAX_MESSAGES + 1 }, (_, i) => ({
       ...userMessage,

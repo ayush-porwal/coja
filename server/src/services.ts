@@ -1,3 +1,4 @@
+import { ChatGptConnection } from './codex/connection.js'
 import { createContext, type ServerContext } from './context.js'
 import type { Forge } from './forge/forge.js'
 import { ghAuthStatus, ghToken } from './forge/gh-cli.js'
@@ -21,6 +22,8 @@ export interface AppServices {
   fetcher: PrFetcher
   secrets: SecretStore
   ghAuthStatus: () => Promise<GhAuthStatus>
+  /** ChatGPT-subscription connection (tokens live in the keychain). */
+  chatgpt: ChatGptConnection
 }
 
 export async function createServices(opts: { dataDir?: string } = {}): Promise<AppServices> {
@@ -28,5 +31,6 @@ export async function createServices(opts: { dataDir?: string } = {}): Promise<A
   const secrets = await openSecretStore({ dataDir: ctx.dataDir })
   const forge = new GitHubForge({ gql: createGraphqlClient({ getToken: ghToken }) })
   const fetcher = new PrFetcher()
-  return { ctx, forge, fetcher, secrets, ghAuthStatus }
+  const chatgpt = new ChatGptConnection({ secrets, db: ctx.db })
+  return { ctx, forge, fetcher, secrets, ghAuthStatus, chatgpt }
 }

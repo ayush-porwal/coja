@@ -15,7 +15,11 @@ import type { Chat, ContextChip, GitChangedFile, PullRequestDetail } from '../sh
 import { saveMessages } from './chats.js'
 import { assertKnownToolParts, pruneOlderToolOutputs } from './history.js'
 import { buildSystemPrompt } from './prompt.js'
-import { resolveLanguageModel } from './providers.js'
+import {
+  type CustomProviderSource,
+  resolveLanguageModel,
+  type SubscriptionProvider,
+} from './providers.js'
 import { createReviewTools, type ToolContext } from './tools.js'
 import { type ChatMessage, chatMessageMetadataSchema, contextChipSchema } from './types.js'
 
@@ -46,6 +50,12 @@ export interface ChatTurnParams {
   files: GitChangedFile[]
   /** Aborts the provider call and tool execution when the client disconnects. */
   signal: AbortSignal
+  /** The connected ChatGPT subscription, when the user signed in. */
+  subscription?: SubscriptionProvider
+  /** Custom provider lookup (Setup's added endpoints), for model resolution. */
+  customProviders?: CustomProviderSource
+  /** Requested reasoning effort (validated upstream against the model's catalog entry). */
+  reasoningEffort?: string
   /** Test seam: use this model instead of resolving `model` through the secret store. */
   languageModel?: LanguageModel
 }
@@ -87,7 +97,15 @@ export async function handleChatTurn(params: ChatTurnParams): Promise<Response> 
     throw badRequest('the last message must be a user message')
   }
 
-  const model = params.languageModel ?? (await resolveLanguageModel(modelId, params.secrets))
+  const model =
+    params.languageModel ??
+    (await resolveLanguageModel(
+      modelId,
+      params.secrets,
+      params.subscription,
+      params.reasoningEffort,
+      params.customProviders,
+    ))
 
   // The model gets older tool results elided; `messages` itself (persisted below) stays whole.
   const modelMessages = await convertToModelMessages<ChatMessage>(pruneOlderToolOutputs(messages), {

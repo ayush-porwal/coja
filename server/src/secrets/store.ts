@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto'
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
-import type { ProviderId } from '../shared/api.js'
 
 /**
  * Where API keys live. The OS keychain (macOS Keychain, Windows Credential
@@ -38,7 +37,7 @@ export const PROBE_ACCOUNT = '__coja_probe__'
 export const CREDENTIALS_FILE = 'credentials.json'
 
 /** Keychain account / file key under which a provider's API key is stored. */
-export const providerKeyName = (provider: ProviderId): string => `${provider}-api-key`
+export const providerKeyName = (provider: string): string => `${provider}-api-key`
 
 // ---------------------------------------------------------------------------
 // Opening

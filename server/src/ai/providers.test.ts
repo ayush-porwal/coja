@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { HttpError } from '../routes/http.js'
 import { curatedModels } from '../secrets/providers.js'
-import { MemorySecretStore, providerKeyName } from '../secrets/store.js'
-import { PROVIDERS } from '../shared/api.js'
+import { MemorySecretStore } from '../secrets/store.js'
+import type { SubscriptionProvider } from './providers.js'
 import { defaultModelId, parseModelId, resolveLanguageModel } from './providers.js'
 
 function thrown(fn: () => unknown): unknown {
@@ -14,32 +14,38 @@ function thrown(fn: () => unknown): unknown {
   return null
 }
 
+const connectedSubscription = (): SubscriptionProvider => ({
+  status: async () => ({ connected: true }),
+  getFreshAccessToken: async () => ({ accessToken: 'tok' }),
+  forceRefresh: async () => ({ accessToken: 'tok' }),
+  defaultReasoningEffortFor: () => undefined,
+  supportsReasoningEffort: async () => false,
+})
+
 describe('parseModelId', () => {
-  it('accepts exactly the curated ids of both providers', () => {
-    for (const provider of PROVIDERS) {
-      const curated = curatedModels(provider)
-      expect(curated.length).toBeGreaterThan(0)
-      for (const m of curated) {
-        expect(parseModelId(m.id)).toEqual({ provider, modelId: m.modelId })
-      }
+  it('accepts the chatgpt subscription slug ids', () => {
+    for (const m of curatedModels('chatgpt')) {
+      expect(parseModelId(m.id)).toEqual({ provider: 'chatgpt', modelId: m.modelId })
     }
+    // The catalog, not a curated list, vouches for chatgpt slugs — any slug shape passes.
+    expect(parseModelId('chatgpt:gpt-5.6-sol')).toEqual({
+      provider: 'chatgpt',
+      modelId: 'gpt-5.6-sol',
+    })
   })
 
-  it('rejects malformed ids, unknown providers and models outside the curated list with a 400', () => {
+  it('rejects malformed ids and unknown providers with a 400', () => {
     for (const id of [
       '',
       'gpt-5',
       ':gpt-5',
-      'openai:',
+      'chatgpt:',
       'gemini:pro',
-      'OpenAI:gpt-5',
-      'openai:GPT-5',
-      'openai:gpt-5 ',
-      'openai: gpt-5',
-      'openai:gpt-5-mini-2025-08-07',
-      'anthropic:claude-3-opus',
-      'anthropic:claude-sonnet-4-5-20250929',
-      'openai:../../etc/passwd',
+      'openai:gpt-5',
+      'anthropic:claude-sonnet-4-5',
+      'chatgpt:../../etc/passwd',
+      'custom-:chat',
+      'custom-BAD:x',
     ]) {
       const err = thrown(() => parseModelId(id))
       expect(err, id).toBeInstanceOf(HttpError)
@@ -47,40 +53,115 @@ describe('parseModelId', () => {
     }
   })
 
-  it('names the accepted ids of that provider in the error', () => {
-    expect(() => parseModelId('openai:gpt-9')).toThrow(
-      /unknown OpenAI model "openai:gpt-9"; accepted: openai:gpt-5, openai:gpt-5-mini, /,
-    )
-    const anthropic = thrown(() => parseModelId('anthropic:claude-9')) as Error
-    expect(anthropic.message).toContain('anthropic:claude-sonnet-4-5')
-    expect(anthropic.message).not.toContain('openai:')
+  it('names the accepted providers in the error', () => {
+    const err = thrown(() => parseModelId('gemini:pro')) as HttpError
+    expect(err.message).toContain('ChatGPT (subscription)')
   })
 })
 
-describe('resolveLanguageModel and defaultModelId', () => {
-  it('answers 400 (code provider) without a key, and 400 (bad_request) for an unknown model even with one', async () => {
-    const secrets = new MemorySecretStore()
-    await expect(resolveLanguageModel('openai:gpt-5-mini', secrets)).rejects.toMatchObject({
-      status: 400,
-      code: 'provider',
-      message: 'No API key configured for OpenAI. Add one in Setup.',
+describe('parseModelId — custom providers', () => {
+  const lookup = (id: string) =>
+    id === 'custom-deepseek'
+      ? {
+          id,
+          name: 'DeepSeek',
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiFormat: 'openai' as const,
+          models: [{ id: 'deepseek-chat' }],
+        }
+      : undefined
+
+  it('accepts a custom provider id when the lookup vouches for it', () => {
+    expect(parseModelId('custom-deepseek:deepseek-chat', lookup)).toEqual({
+      provider: 'custom-deepseek',
+      modelId: 'deepseek-chat',
     })
-    await secrets.set(providerKeyName('openai'), 'sk-test')
-    await expect(resolveLanguageModel('openai:gpt-9', secrets)).rejects.toMatchObject({
-      status: 400,
-      code: 'bad_request',
-    })
-    // A curated model with a key resolves to a model object; no request is made until it is used.
-    const model = await resolveLanguageModel('openai:gpt-5-mini', secrets)
-    expect(model).toMatchObject({ modelId: 'gpt-5-mini' })
   })
 
-  it('defaults to the first curated model of the first configured provider', async () => {
+  it('rejects unknown custom providers and malformed custom model ids', () => {
+    for (const id of ['custom-nope:chat', 'custom-x:../../escape', 'custom-x:']) {
+      const err = thrown(() => parseModelId(id, lookup))
+      expect(err, id).toBeInstanceOf(HttpError)
+      expect(err, id).toMatchObject({ status: 400 })
+    }
+  })
+})
+
+describe('resolveLanguageModel — chatgpt subscription', () => {
+  it('answers 400 (code provider) when ChatGPT is not connected', async () => {
     const secrets = new MemorySecretStore()
-    expect(await defaultModelId(secrets)).toBeNull()
-    await secrets.set(providerKeyName('anthropic'), 'sk-ant')
-    expect(await defaultModelId(secrets)).toBe('anthropic:claude-sonnet-4-5')
-    await secrets.set(providerKeyName('openai'), 'sk-oai')
-    expect(await defaultModelId(secrets)).toBe('openai:gpt-5')
+    const err = await resolveLanguageModel('chatgpt:gpt-5.5', secrets).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(HttpError)
+    expect(err).toMatchObject({ status: 400, code: 'provider' })
+  })
+
+  it('resolves through the subscription when connected', async () => {
+    const secrets = new MemorySecretStore()
+    const model = await resolveLanguageModel('chatgpt:gpt-5.5', secrets, connectedSubscription())
+    expect(model).toBeTruthy()
+  })
+})
+
+describe('resolveLanguageModel — custom providers', () => {
+  const deepseek = {
+    id: 'custom-deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiFormat: 'openai' as const,
+    models: [{ id: 'deepseek-chat' }],
+  }
+
+  it('resolves an openai-format custom provider against its base URL', async () => {
+    const secrets = new MemorySecretStore()
+    await secrets.set('custom-deepseek-api-key', 'sk-custom')
+    const model = await resolveLanguageModel(
+      'custom-deepseek:deepseek-chat',
+      secrets,
+      undefined,
+      undefined,
+      (id) => (id === 'custom-deepseek' ? deepseek : undefined),
+    )
+    expect(model).toBeTruthy()
+  })
+
+  it('answers 400 for a custom provider the lookup does not know', async () => {
+    const secrets = new MemorySecretStore()
+    const err = await resolveLanguageModel(
+      'custom-ghost:chat',
+      secrets,
+      undefined,
+      undefined,
+      () => undefined,
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(HttpError)
+    expect(err).toMatchObject({ status: 400 })
+  })
+
+  it('works keyless (local endpoints): no stored key still resolves', async () => {
+    const secrets = new MemorySecretStore()
+    const model = await resolveLanguageModel(
+      'custom-deepseek:deepseek-chat',
+      secrets,
+      undefined,
+      undefined,
+      (id) => (id === 'custom-deepseek' ? deepseek : undefined),
+    )
+    expect(model).toBeTruthy()
+  })
+})
+
+describe('defaultModelId', () => {
+  it('is null with no subscription and defaults to chatgpt bootstrap when connected', async () => {
+    expect(await defaultModelId(undefined)).toBeNull()
+    const subscription = connectedSubscription()
+    const spy = vi.spyOn(subscription, 'status')
+    expect(await defaultModelId(subscription)).toBe('chatgpt:gpt-5.5')
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 })

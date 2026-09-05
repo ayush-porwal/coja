@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
+import { ChatGptConnection } from '../codex/connection.js'
+import { freePort } from '../codex/oauth.test.js'
+import { CODEX_PROTOCOL, type CodexProtocol } from '../codex/protocol.js'
 import { openDb, settings } from '../db.js'
 import { MemorySecretStore } from '../secrets/store.js'
 import {
@@ -7,42 +10,12 @@ import {
   type ApiError,
   type GhAuthStatus,
   type ModelInfo,
-  type SaveKeyRequest,
   type SetupStatus,
 } from '../shared/api.js'
 import { onApiError } from './http.js'
-import { ModelCache, registerSetupRoutes, SETUP_COMPLETE_KEY } from './setup.js'
+import { registerSetupRoutes, SETUP_COMPLETE_KEY } from './setup.js'
 
-const GOOD_OPENAI = 'sk-proj-good-0000000000'
-const GOOD_ANTHROPIC = 'sk-ant-good-0000000000'
-const BAD = 'sk-bad'
-
-const OPENAI_LIST = [{ id: 'gpt-5-mini' }, { id: 'gpt-4o' }, { id: 'gpt-4.1' }]
-const ANTHROPIC_LIST = [{ id: 'claude-sonnet-4-5-20250929' }, { id: 'claude-3-haiku-20240307' }]
-
-const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-
-/**
- * A provider stand-in: 401 for the bad key, otherwise the models list of the
- * provider addressed by the URL. Records every call so tests can count them.
- */
-function fakeProviders() {
-  const calls: { url: string; key: string | undefined }[] = []
-  const impl = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    const headers = (init?.headers ?? {}) as Record<string, string>
-    const key = headers['x-api-key'] ?? headers.authorization?.replace(/^Bearer /, '')
-    calls.push({ url, key })
-    if (key === BAD) return json(401, { error: { message: 'Incorrect API key' } })
-    if (url.startsWith('https://api.openai.com/')) return json(200, { data: OPENAI_LIST })
-    if (url.startsWith('https://api.anthropic.com/')) return json(200, { data: ANTHROPIC_LIST })
-    return json(404, {})
-  }) as typeof fetch
-  return { impl, calls }
-}
-
-function makeApp(opts: { now?: () => number } = {}) {
+function makeApp(opts: { chatgpt?: ChatGptConnection; fetchImpl?: typeof fetch } = {}) {
   const app = new Hono()
   app.onError(onApiError)
   const db = openDb(':memory:')
@@ -50,12 +23,15 @@ function makeApp(opts: { now?: () => number } = {}) {
   const ghAuthStatus = vi.fn(
     async (): Promise<GhAuthStatus> => ({ ok: true, login: 'octocat', host: 'github.com' }),
   )
-  const providers = fakeProviders()
-  const modelCache = new ModelCache(undefined, opts.now)
   registerSetupRoutes(
     app,
     { dataDir: '/nowhere', db },
-    { secrets, ghAuthStatus, fetchImpl: providers.impl, modelCache },
+    {
+      secrets,
+      ghAuthStatus,
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+      ...(opts.chatgpt ? { chatgpt: opts.chatgpt } : {}),
+    },
   )
 
   const getStatus = async () => {
@@ -63,29 +39,49 @@ function makeApp(opts: { now?: () => number } = {}) {
     expect(res.status).toBe(200)
     return (await res.json()) as SetupStatus
   }
-  const saveKey = (body: unknown) =>
-    app.request(API_ROUTES.setupKey, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: typeof body === 'string' ? body : JSON.stringify(body),
-    })
   const getModels = async () => {
     const res = await app.request(API_ROUTES.aiModels)
     expect(res.status).toBe(200)
     return (await res.json()) as ModelInfo[]
   }
 
-  return { app, db, secrets, ghAuthStatus, providers, modelCache, getStatus, saveKey, getModels }
+  const postCustomProvider = (body: unknown) =>
+    app.request(API_ROUTES.setupCustomProviders, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    })
+  const deleteCustomProvider = (id: string) =>
+    app.request(API_ROUTES.setupCustomProviderDelete(id), { method: 'DELETE' })
+  const fetchCustomModels = (body: unknown) =>
+    app.request(API_ROUTES.setupCustomModels, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    })
+
+  return {
+    app,
+    db,
+    secrets,
+    ghAuthStatus,
+    getStatus,
+    getModels,
+    postCustomProvider,
+    deleteCustomProvider,
+    fetchCustomModels,
+  }
 }
 
 describe('GET /api/setup/status', () => {
-  it('reports gh, unconfigured providers, the secrets backend and an incomplete setup', async () => {
+  it('reports gh, the secrets backend and an incomplete setup', async () => {
     const t = makeApp()
     expect(await t.getStatus()).toEqual({
       gh: { ok: true, login: 'octocat', host: 'github.com' },
-      providers: { openai: { configured: false }, anthropic: { configured: false } },
+      customProviders: [],
       secrets: { backend: 'keychain' },
       setupComplete: false,
+      chatgpt: { connected: false },
     })
     expect(t.ghAuthStatus).toHaveBeenCalledTimes(1)
   })
@@ -102,119 +98,19 @@ describe('GET /api/setup/status', () => {
     const status = await t.getStatus()
     expect(status.gh.ok).toBe(false)
     expect(status.gh.error).toContain('spawn gh EACCES')
-    expect(status.providers.openai.configured).toBe(false)
   })
 
-  it('reflects keys already in the store and the file backend', async () => {
+  it('reflects the file backend when the keychain is unavailable', async () => {
     const app = new Hono()
     app.onError(onApiError)
     const secrets = new MemorySecretStore('file')
-    await secrets.set('anthropic-api-key', GOOD_ANTHROPIC)
     registerSetupRoutes(
       app,
       { dataDir: '/nowhere', db: openDb(':memory:') },
       { secrets, ghAuthStatus: async () => ({ ok: false, error: 'no gh' }) },
     )
     const status = (await (await app.request(API_ROUTES.setupStatus)).json()) as SetupStatus
-    expect(status.providers).toEqual({
-      openai: { configured: false },
-      anthropic: { configured: true },
-    })
-    expect(status.secrets.backend).toBe('file')
-  })
-})
-
-describe('POST /api/setup/key', () => {
-  it('validates with the provider, stores the trimmed key and completes setup', async () => {
-    const t = makeApp()
-    const body: SaveKeyRequest = { provider: 'openai', apiKey: `  ${GOOD_OPENAI}\n` }
-    const res = await t.saveKey(body)
-    expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(JSON.parse(text)).toEqual({ ok: true, provider: 'openai' })
-    expect(text).not.toContain(GOOD_OPENAI)
-
-    expect(await t.secrets.get('openai-api-key')).toBe(GOOD_OPENAI)
-    expect(t.providers.calls).toEqual([
-      { url: 'https://api.openai.com/v1/models', key: GOOD_OPENAI },
-    ])
-
-    const status = await t.getStatus()
-    expect(status.providers.openai.configured).toBe(true)
-    expect(status.providers.anthropic.configured).toBe(false)
-    expect(status.setupComplete).toBe(true)
-    expect(settings.get(t.db, SETUP_COMPLETE_KEY)).toBe('1')
-  })
-
-  it("answers 400 with code 'provider' for a rejected key and stores nothing", async () => {
-    const t = makeApp()
-    const res = await t.saveKey({ provider: 'anthropic', apiKey: BAD })
-    expect(res.status).toBe(400)
-    expect((await res.json()) as ApiError).toEqual({
-      error: 'That key was rejected by Anthropic.',
-      code: 'provider',
-    })
-    expect(await t.secrets.get('anthropic-api-key')).toBeNull()
-    expect((await t.getStatus()).setupComplete).toBe(false)
-  })
-
-  it("answers 400 with code 'bad_request' for malformed bodies, without calling the provider", async () => {
-    const t = makeApp()
-    for (const body of [
-      { provider: 'gemini', apiKey: 'x' },
-      { provider: 'openai' },
-      { provider: 'openai', apiKey: '   ' },
-      { apiKey: 'x' },
-      'not json',
-    ]) {
-      const res = await t.saveKey(body)
-      expect(res.status).toBe(400)
-      const err = (await res.json()) as ApiError
-      expect(err.code).toBe('bad_request')
-      expect(err.error).toMatch(/invalid request|JSON body/)
-    }
-    expect(t.providers.calls).toEqual([])
-    expect(await t.secrets.get('openai-api-key')).toBeNull()
-  })
-
-  it('overwrites an existing key', async () => {
-    const t = makeApp()
-    await t.saveKey({ provider: 'openai', apiKey: GOOD_OPENAI })
-    const res = await t.saveKey({ provider: 'openai', apiKey: `${GOOD_OPENAI}-rotated` })
-    expect(res.status).toBe(200)
-    expect(await t.secrets.get('openai-api-key')).toBe(`${GOOD_OPENAI}-rotated`)
-  })
-})
-
-describe('DELETE /api/setup/key', () => {
-  it('removes the key and leaves setupComplete alone', async () => {
-    const t = makeApp()
-    await t.saveKey({ provider: 'openai', apiKey: GOOD_OPENAI })
-    const res = await t.app.request(API_ROUTES.setupKeyDelete('openai'), { method: 'DELETE' })
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true })
-    expect(await t.secrets.get('openai-api-key')).toBeNull()
-    const status = await t.getStatus()
-    expect(status.providers.openai.configured).toBe(false)
-    expect(status.setupComplete).toBe(true)
-  })
-
-  it('is idempotent for a provider without a key', async () => {
-    const t = makeApp()
-    const res = await t.app.request(API_ROUTES.setupKeyDelete('anthropic'), { method: 'DELETE' })
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true })
-  })
-
-  it('rejects a missing or unknown provider', async () => {
-    const t = makeApp()
-    for (const url of ['/api/setup/key', '/api/setup/key?provider=gemini']) {
-      const res = await t.app.request(url, { method: 'DELETE' })
-      expect(res.status).toBe(400)
-      const err = (await res.json()) as ApiError
-      expect(err.code).toBe('bad_request')
-      expect(err.error).toContain('provider')
-    }
+    expect(status.secrets).toEqual({ backend: 'file' })
   })
 })
 
@@ -227,111 +123,391 @@ describe('POST /api/setup/complete', () => {
     const status = (await res.json()) as SetupStatus
     expect(status.setupComplete).toBe(true)
     expect(status.gh.ok).toBe(true)
-    expect(status.providers.openai.configured).toBe(false)
     expect(settings.get(t.db, SETUP_COMPLETE_KEY)).toBe('1')
     expect((await t.getStatus()).setupComplete).toBe(true)
   })
 })
 
 describe('GET /api/ai/models', () => {
-  it('is empty when no provider is configured and does not call any provider', async () => {
+  it('is empty when nothing is configured', async () => {
     const t = makeApp()
     expect(await t.getModels()).toEqual([])
-    expect(t.providers.calls).toEqual([])
   })
 
-  it('lists only configured providers, narrowed to what the key can use', async () => {
+  it('lists custom provider models with the provider display name', async () => {
     const t = makeApp()
-    await t.saveKey({ provider: 'openai', apiKey: GOOD_OPENAI })
-    expect((await t.getModels()).map((m) => m.id)).toEqual(['openai:gpt-5-mini', 'openai:gpt-4.1'])
-
-    await t.saveKey({ provider: 'anthropic', apiKey: GOOD_ANTHROPIC })
+    await t.postCustomProvider({
+      name: 'DeepSeek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      apiFormat: 'openai',
+      models: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner', label: 'DeepSeek R' }],
+    })
     const models = await t.getModels()
     expect(models.map((m) => m.id)).toEqual([
-      'openai:gpt-5-mini',
-      'openai:gpt-4.1',
-      'anthropic:claude-sonnet-4-5',
+      'custom-deepseek:deepseek-chat',
+      'custom-deepseek:deepseek-reasoner',
     ])
-    expect(models[2]).toEqual({
-      id: 'anthropic:claude-sonnet-4-5',
-      provider: 'anthropic',
-      modelId: 'claude-sonnet-4-5',
-      label: 'Claude Sonnet 4.5',
+    // The display name from the endpoint wins over the fallback label.
+    expect(models[1]?.label).toBe('DeepSeek R')
+  })
+})
+// ---------------------------------------------------------------------------
+// ChatGPT subscription
+// ---------------------------------------------------------------------------
+
+const ID_TOKEN = (() => {
+  const payload = Buffer.from(
+    JSON.stringify({
+      email: 'user@example.com',
+      'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1', chatgpt_plan_type: 'plus' },
+    }),
+  ).toString('base64url')
+  return `h.${payload}.s`
+})()
+
+/** A real connection against a mocked token endpoint and a free callback port. */
+async function makeChatGpt(): Promise<{
+  connection: ChatGptConnection
+  secrets: MemorySecretStore
+  protocol: CodexProtocol
+  opened: string[]
+}> {
+  const secrets = new MemorySecretStore()
+  const protocol: CodexProtocol = { ...CODEX_PROTOCOL, redirectPort: await freePort() }
+  const CATALOG = {
+    models: [
+      {
+        slug: 'gpt-reserve',
+        display_name: 'GPT-Reserve',
+        visibility: 'hide',
+        default_reasoning_level: 'medium',
+        supported_reasoning_levels: [{ effort: 'low' }],
+      },
+      {
+        slug: 'gpt-5.6-sol',
+        display_name: 'GPT-5.6-Sol',
+        visibility: 'list',
+        default_reasoning_level: 'low',
+        supported_reasoning_levels: [
+          { effort: 'low', description: 'Fast' },
+          { effort: 'ultra', description: 'Deepest' },
+        ],
+      },
+      {
+        slug: 'gpt-5.4-mini',
+        display_name: 'GPT-5.4-Mini',
+        visibility: 'list',
+        default_reasoning_level: 'medium',
+        supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }],
+      },
+    ],
+  }
+  const fetchImpl = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.startsWith('https://auth.openai.com/oauth/token')) {
+      return new Response(
+        JSON.stringify({
+          access_token: 'at-1',
+          refresh_token: 'rt-1',
+          id_token: ID_TOKEN,
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }
+    if (url.includes('/models')) {
+      return new Response(JSON.stringify(CATALOG), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    throw new Error(`unexpected fetch ${url}`)
+  }) as typeof fetch
+  const opened: string[] = []
+  const connection = new ChatGptConnection({
+    secrets,
+    fetchImpl,
+    protocol,
+    openBrowser: (url) => opened.push(url), // never open a real browser from tests
+  })
+  return { connection, secrets, protocol, opened }
+}
+
+describe('ChatGPT subscription routes', () => {
+  const status = async (app: Hono): Promise<SetupStatus> => {
+    const res = await app.request(API_ROUTES.setupStatus)
+    expect(res.status).toBe(200)
+    return (await res.json()) as SetupStatus
+  }
+
+  it('reports the connection in the status, with account facts only', async () => {
+    const { connection } = await makeChatGpt()
+    const t = makeApp({ chatgpt: connection })
+    expect((await t.getStatus()).chatgpt).toEqual({ connected: false })
+    expect(JSON.stringify(await t.getStatus())).not.toContain('at-1')
+  })
+
+  it('connect starts the flow (and surfaces port errors as 400)', async () => {
+    const { connection, protocol } = await makeChatGpt()
+    const t = makeApp({ chatgpt: connection })
+    const res = await t.app.request(API_ROUTES.setupChatgptConnect, { method: 'POST' })
+    expect(res.status).toBe(200)
+    const { authUrl } = (await res.json()) as { ok: true; authUrl: string }
+    expect(authUrl).toContain('auth.openai.com/oauth/authorize')
+    expect(authUrl).toContain(`redirect_uri=http%3A%2F%2Flocalhost%3A${protocol.redirectPort}`)
+
+    // A concurrent start is idempotent: the same flow, the same URL.
+    const again = await t.app.request(API_ROUTES.setupChatgptConnect, { method: 'POST' })
+    expect(((await again.json()) as { authUrl: string }).authUrl).toBe(authUrl)
+
+    // Live status during the flow.
+    const live = await t.app.request(API_ROUTES.setupChatgptStatus)
+    expect(((await live.json()) as { status: string }).status).toBe('connecting')
+
+    // Simulate the browser callback, then the status flips to connected.
+    const state = new URL(authUrl).searchParams.get('state') ?? ''
+    await fetch(`http://127.0.0.1:${protocol.redirectPort}/auth/callback?code=good&state=${state}`)
+    await vi.waitFor(async () => {
+      const done = await t.app.request(API_ROUTES.setupChatgptStatus)
+      const body = (await done.json()) as { status: string; email?: string; plan?: string }
+      expect(body.status).toBe('connected')
+      expect(body.email).toBe('user@example.com')
+      expect(body.plan).toBe('plus')
     })
-    const listCalls = t.providers.calls.filter((c) => c.url.includes('limit=1000'))
-    expect(listCalls.map((c) => c.key)).toEqual([GOOD_ANTHROPIC])
+    expect(JSON.stringify(await status(t.app))).not.toContain('rt-1')
   })
 
-  it('caches per provider and forgets the cache when a key is saved or deleted', async () => {
-    const t = makeApp()
-    await t.saveKey({ provider: 'openai', apiKey: GOOD_OPENAI })
-    const afterSave = t.providers.calls.length // the validation call
-    await t.getModels()
-    await t.getModels()
-    await t.getModels()
-    expect(t.providers.calls.length).toBe(afterSave + 1)
-
-    await t.saveKey({ provider: 'openai', apiKey: `${GOOD_OPENAI}-rotated` })
-    await t.getModels()
-    expect(t.providers.calls.length).toBe(afterSave + 3) // validation + fresh list
-
-    await t.app.request(API_ROUTES.setupKeyDelete('openai'), { method: 'DELETE' })
-    expect(await t.getModels()).toEqual([])
-    expect(t.providers.calls.length).toBe(afterSave + 3)
+  it('connect answers 400 with the setup-safe error when the port is busy', async () => {
+    const { connection, protocol } = await makeChatGpt()
+    const { createServer } = await import('node:http')
+    const occupant = createServer()
+    await new Promise<void>((resolve) =>
+      occupant.listen(protocol.redirectPort, '127.0.0.1', resolve),
+    )
+    try {
+      const t = makeApp({ chatgpt: connection })
+      const res = await t.app.request(API_ROUTES.setupChatgptConnect, { method: 'POST' })
+      expect(res.status).toBe(400)
+      const err = (await res.json()) as ApiError
+      expect(err.code).toBe('provider')
+      expect(err.error).toContain('already in use')
+      expect(err.error).not.toContain('[coja:chatgpt')
+      // The failure also shows up in the polled status.
+      const live = (await (await t.app.request(API_ROUTES.setupChatgptStatus)).json()) as {
+        status: string
+        connectError?: string
+      }
+      expect(live.connectError).toContain('already in use')
+    } finally {
+      await new Promise<void>((resolve) => occupant.close(() => resolve()))
+    }
   })
 
-  it('refreshes after the 10-minute TTL', async () => {
-    let now = 1_000_000
-    const t = makeApp({ now: () => now })
-    await t.saveKey({ provider: 'anthropic', apiKey: GOOD_ANTHROPIC })
-    const afterSave = t.providers.calls.length
-    await t.getModels()
-    now += 9 * 60 * 1000
-    await t.getModels()
-    expect(t.providers.calls.length).toBe(afterSave + 1)
-    now += 2 * 60 * 1000
-    await t.getModels()
-    expect(t.providers.calls.length).toBe(afterSave + 2)
+  it('disconnect forgets the connection', async () => {
+    const { connection, protocol, secrets } = await makeChatGpt()
+    const t = makeApp({ chatgpt: connection })
+    const started = await t.app.request(API_ROUTES.setupChatgptConnect, { method: 'POST' })
+    const authUrl = ((await started.json()) as { authUrl: string }).authUrl
+    const state = new URL(authUrl).searchParams.get('state') ?? ''
+    await fetch(`http://127.0.0.1:${protocol.redirectPort}/auth/callback?code=good&state=${state}`)
+    await vi.waitFor(async () => {
+      expect((await status(t.app)).chatgpt.connected).toBe(true)
+    })
+
+    const del = await t.app.request(API_ROUTES.setupChatgptDisconnect, { method: 'DELETE' })
+    expect(del.status).toBe(200)
+    expect(await del.json()).toEqual({ ok: true })
+    expect(await secrets.get('chatgpt-auth')).toBeNull()
+    expect((await status(t.app)).chatgpt.connected).toBe(false)
+  })
+
+  it('models include the subscription list only while connected, without network calls', async () => {
+    const { connection, protocol } = await makeChatGpt()
+    const t = makeApp({ chatgpt: connection })
+    expect((await t.getModels()).filter((m) => m.provider === 'chatgpt')).toEqual([])
+
+    const started = await t.app.request(API_ROUTES.setupChatgptConnect, { method: 'POST' })
+    const authUrl = ((await started.json()) as { authUrl: string }).authUrl
+    const state = new URL(authUrl).searchParams.get('state') ?? ''
+    await fetch(`http://127.0.0.1:${protocol.redirectPort}/auth/callback?code=good&state=${state}`)
+    await vi.waitFor(async () => {
+      expect((await status(t.app)).chatgpt.connected).toBe(true)
+    })
+
+    const models = await t.getModels()
+    const chatgptModels = models.filter((m) => m.provider === 'chatgpt')
+    // Catalog-driven: hidden models filtered, display names, per-model efforts.
+    expect(chatgptModels).toEqual([
+      {
+        id: 'chatgpt:gpt-5.6-sol',
+        provider: 'chatgpt',
+        modelId: 'gpt-5.6-sol',
+        label: 'GPT-5.6-Sol',
+        reasoningEfforts: [
+          { effort: 'low', description: 'Fast' },
+          { effort: 'ultra', description: 'Deepest' },
+        ],
+        defaultReasoningEffort: 'low',
+      },
+      {
+        id: 'chatgpt:gpt-5.4-mini',
+        provider: 'chatgpt',
+        modelId: 'gpt-5.4-mini',
+        label: 'GPT-5.4-Mini',
+        reasoningEfforts: [{ effort: 'low' }, { effort: 'medium' }],
+        defaultReasoningEffort: 'medium',
+      },
+    ])
   })
 })
 
-describe('ModelCache', () => {
-  const model: ModelInfo = {
-    id: 'openai:gpt-5',
-    provider: 'openai',
-    modelId: 'gpt-5',
-    label: 'GPT-5',
+describe('custom model providers', () => {
+  const BODY = {
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiFormat: 'openai',
+    models: [{ id: 'deepseek-chat' }],
+    apiKey: 'sk-custom',
   }
 
-  it('shares an in-flight load and drops a rejected one', async () => {
-    const cache = new ModelCache()
-    let resolve!: (models: ModelInfo[]) => void
-    const load = vi.fn(() => new Promise<ModelInfo[]>((r) => (resolve = r)))
-    const a = cache.getOrLoad('openai', load)
-    const b = cache.getOrLoad('openai', load)
-    expect(load).toHaveBeenCalledTimes(1)
-    resolve([model])
-    expect(await a).toEqual([model])
-    expect(await b).toEqual([model])
+  it('adds a provider, lists it in status with hasKey, and serves its models', async () => {
+    const t = makeApp()
+    const res = await t.postCustomProvider(BODY)
+    expect(res.status).toBe(200)
+    const { customProviders } = (await res.json()) as SetupStatus
+    expect(customProviders).toEqual([
+      {
+        id: 'custom-deepseek',
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiFormat: 'openai',
+        models: [{ id: 'deepseek-chat' }],
+        hasKey: true,
+      },
+    ])
 
-    const failing = vi.fn(() => Promise.reject(new Error('boom')))
-    await expect(cache.getOrLoad('anthropic', failing)).rejects.toThrow('boom')
-    await expect(cache.getOrLoad('anthropic', failing)).rejects.toThrow('boom')
-    expect(failing).toHaveBeenCalledTimes(2)
+    const status = await t.getStatus()
+    expect(status.customProviders).toEqual(customProviders)
+
+    const models = await t.getModels()
+    expect(models.map((m) => m.id)).toContain('custom-deepseek:deepseek-chat')
+    const custom = models.find((m) => m.id === 'custom-deepseek:deepseek-chat')
+    expect(custom?.providerLabel).toBe('DeepSeek')
   })
 
-  it('clears one provider or all', async () => {
-    const cache = new ModelCache()
-    const load = vi.fn(async () => [model])
-    await cache.getOrLoad('openai', load)
-    await cache.getOrLoad('anthropic', load)
-    cache.clear('openai')
-    await cache.getOrLoad('openai', load)
-    await cache.getOrLoad('anthropic', load)
-    expect(load).toHaveBeenCalledTimes(3)
-    cache.clear()
-    await cache.getOrLoad('openai', load)
-    await cache.getOrLoad('anthropic', load)
-    expect(load).toHaveBeenCalledTimes(5)
+  it('keeps the stored key when an edit arrives without one, and replaces it with one', async () => {
+    const t = makeApp()
+    await t.postCustomProvider(BODY)
+    expect(await t.secrets.get('custom-deepseek-api-key')).toBe('sk-custom')
+
+    // Edit without a key: config changes, key survives.
+    await t.postCustomProvider({
+      ...BODY,
+      models: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner', label: 'DeepSeek R' }],
+    })
+    expect(await t.secrets.get('custom-deepseek-api-key')).toBe('sk-custom')
+    const status = await t.getStatus()
+    expect(status.customProviders[0]?.models).toEqual([
+      { id: 'deepseek-chat' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek R' },
+    ])
+    expect(status.customProviders[0]?.hasKey).toBe(true)
+
+    // An edit with a new key replaces it.
+    await t.postCustomProvider({ ...BODY, apiKey: 'sk-next' })
+    expect(await t.secrets.get('custom-deepseek-api-key')).toBe('sk-next')
+  })
+
+  it('rejects invalid bodies with a 400 and unknown delete ids with a 404', async () => {
+    const t = makeApp()
+    expect((await t.postCustomProvider({ ...BODY, baseUrl: 'ftp://x' })).status).toBe(400)
+    expect((await t.postCustomProvider({ ...BODY, models: [] })).status).toBe(400)
+    expect((await t.deleteCustomProvider('custom-nope')).status).toBe(404)
+  })
+
+  it('fetch model list: proxies GET /models with the right auth headers (openai shape)', async () => {
+    const calls: { url: string; headers: Record<string, string> }[] = []
+    const t = makeApp({
+      fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> })
+        return new Response(
+          JSON.stringify({ data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      }) as typeof fetch,
+    })
+    const res = await t.fetchCustomModels({
+      baseUrl: 'https://api.deepseek.com/v1/',
+      apiFormat: 'openai',
+      apiKey: 'sk-x',
+    })
+    expect(res.status).toBe(200)
+    const { models } = (await res.json()) as { models: { id: string }[] }
+    expect(models.map((m) => m.id)).toEqual(['deepseek-chat', 'deepseek-reasoner'])
+    expect(calls[0]?.url).toBe('https://api.deepseek.com/v1/models')
+    expect(calls[0]?.headers.authorization).toBe('Bearer sk-x')
+  })
+
+  it('fetch model list: anthropic shape and headers, labels kept', async () => {
+    const calls: { url: string; headers: Record<string, string> }[] = []
+    const t = makeApp({
+      fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> })
+        return new Response(
+          JSON.stringify({ data: [{ id: 'claude-a', display_name: 'Claude A' }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as typeof fetch,
+    })
+    const res = await t.fetchCustomModels({
+      baseUrl: 'https://proxy.example.com/v1',
+      apiFormat: 'anthropic',
+      apiKey: 'sk-ant',
+    })
+    expect(res.status).toBe(200)
+    const { models } = (await res.json()) as { models: { id: string; label?: string }[] }
+    expect(models).toEqual([{ id: 'claude-a', label: 'Claude A' }])
+    expect(calls[0]?.url).toBe('https://proxy.example.com/v1/models')
+    expect(calls[0]?.headers['x-api-key']).toBe('sk-ant')
+    expect(calls[0]?.headers['anthropic-version']).toBe('2023-06-01')
+  })
+
+  it('fetch model list: by provider id uses the stored key; failure is a soft 502', async () => {
+    const t = makeApp({
+      fetchImpl: (async () => new Response('nope', { status: 404 })) as typeof fetch,
+    })
+    await t.postCustomProvider({
+      name: 'DeepSeek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      apiFormat: 'openai',
+      models: ['deepseek-chat'],
+      apiKey: 'sk-stored',
+    })
+    const res = await t.fetchCustomModels({ id: 'custom-deepseek' })
+    expect(res.status).toBe(502)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toContain('HTTP 404')
+    expect(body.error).toContain('add models by hand')
+  })
+
+  it('fetch model list: 400 when neither id nor base URL is given', async () => {
+    const t = makeApp()
+    expect((await t.fetchCustomModels({})).status).toBe(400)
+  })
+
+  it('removes a provider and its stored key', async () => {
+    const t = makeApp()
+    await t.postCustomProvider(BODY)
+    expect((await t.deleteCustomProvider('custom-deepseek')).status).toBe(200)
+    expect(await t.secrets.get('custom-deepseek-api-key')).toBeNull()
+    expect((await t.getStatus()).customProviders).toEqual([])
+    expect((await t.getModels()).map((m) => m.id)).not.toContain('custom-deepseek:deepseek-chat')
   })
 })
