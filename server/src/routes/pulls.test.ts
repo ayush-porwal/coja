@@ -18,6 +18,8 @@ export function fakeForge(): { [K in keyof Forge]: ReturnType<typeof vi.fn<Forge
     replyToThread: vi.fn<Forge['replyToThread']>(),
     updateComment: vi.fn<Forge['updateComment']>(),
     deleteComment: vi.fn<Forge['deleteComment']>(),
+    assertCommentInPullRequest: vi.fn<Forge['assertCommentInPullRequest']>(),
+    assertThreadInPullRequest: vi.fn<Forge['assertThreadInPullRequest']>(),
     setFileViewed: vi.fn<Forge['setFileViewed']>(),
     submitReview: vi.fn<Forge['submitReview']>(),
     discardPendingReview: vi.fn<Forge['discardPendingReview']>(),

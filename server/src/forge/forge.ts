@@ -63,6 +63,15 @@ export interface Forge {
   replyToThread(threadId: string, body: string): Promise<ReplyResponse>
   updateComment(commentId: string, body: string): Promise<ReviewComment>
   deleteComment(commentId: string): Promise<void>
+  /**
+   * Reject with a 404 unless `commentId` is a review comment on pull request
+   * `number` of `repo`. Route handlers call this before acting on a
+   * client-supplied comment id, so a request scoped to one PR can never touch
+   * another PR's comments.
+   */
+  assertCommentInPullRequest(commentId: string, repo: RepoRef, number: number): Promise<void>
+  /** The same check for a review thread id. */
+  assertThreadInPullRequest(threadId: string, repo: RepoRef, number: number): Promise<void>
 
   setFileViewed(prId: string, path: string, viewed: boolean): Promise<FileViewedState>
 

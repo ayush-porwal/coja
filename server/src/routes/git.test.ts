@@ -162,6 +162,8 @@ describe('git routes', () => {
       path: 'src/app.ts',
       text: APP_TS_HEAD,
       lineCount: 13,
+      size: Buffer.byteLength(APP_TS_HEAD),
+      truncated: false,
     })
 
     const range = await get<BlobResponse>(

@@ -32,6 +32,8 @@ describe('createGraphqlClient', () => {
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://example.test/graphql')
     expect(init.method).toBe('POST')
+    // The bearer token must never follow a redirect to another host.
+    expect(init.redirect).toBe('error')
     const headers = init.headers as Record<string, string>
     expect(headers.authorization).toBe('bearer gho_test')
     expect(headers['content-type']).toBe('application/json')

@@ -42,6 +42,8 @@ export function onApiError(err: unknown, c: Context): Response {
   if (anyErr?.name === 'GitError') {
     return c.json<ApiError>({ error: anyErr.message ?? 'git failed', code: 'git' }, 500)
   }
+  // Anything else is a bug or an environment failure: log the full error for the operator,
+  // but never echo its message (paths, stack fragments) to the client.
   console.error(err)
-  return c.json<ApiError>({ error: anyErr?.message ?? 'internal error' }, 500)
+  return c.json<ApiError>({ error: 'internal error' }, 500)
 }

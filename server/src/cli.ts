@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util'
+import { assertGitVersion } from './git/plumbing.js'
 import { openBrowser } from './open-browser.js'
 import { packageVersion, resolvePublicDir } from './paths.js'
 import { startServer } from './server.js'
@@ -62,12 +63,19 @@ async function main(): Promise<void> {
     )
   }
 
+  try {
+    await assertGitVersion()
+  } catch (err) {
+    console.error(`coja: ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
+  }
   const services = await createServices()
   const server = await startServer({
     port: cli.port,
     host: cli.host,
     publicDir: resolvePublicDir(),
     services,
+    allowedHosts: LOOPBACK_HOSTS.has(cli.host) ? [] : [cli.host],
   })
   if (cli.port !== 0 && server.port !== cli.port) {
     console.log(`coja: port ${cli.port} is in use, using ${server.port} instead`)

@@ -1,14 +1,15 @@
-import { execFile } from 'node:child_process'
+import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { badRequest } from '../routes/http.js'
 
 /**
  * The only module that spawns git.
  *
- * Every invocation is `execFile('git', argv)` — an argv array, never a shell —
- * with prompts disabled and stable, untranslated output. Callers hand over
- * arguments as data; pathspecs are validated with {@link assertPathspec} and
- * always placed after a `--`, revisions with {@link assertRevision}, so no
- * user-controlled string can ever be read as an option.
+ * Every invocation is `execFile('git', argv)` (or `spawn` when stdout is
+ * streamed) — an argv array, never a shell — with prompts disabled and stable,
+ * untranslated output. Callers hand over arguments as data; pathspecs are
+ * validated with {@link assertPathspec} and always placed after a `--`,
+ * revisions with {@link assertRevision}, so no user-controlled string can ever
+ * be read as an option.
  */
 
 /** 64 MiB: enough for any patch or file we are willing to hold in memory. */
@@ -36,6 +37,8 @@ export interface RunGitOptions {
   input?: string | Buffer
 }
 
+export type StreamGitOptions = Pick<RunGitOptions, 'timeoutMs' | 'signal' | 'env'>
+
 export interface GitResult {
   stdout: Buffer
   stderr: string
@@ -60,28 +63,97 @@ export class GitError extends Error {
   }
 }
 
-/** Run `git -C <repoPath> <args>` and resolve with its output. Rejects with a GitError. */
-export function runGit(
+/**
+ * Run `git -C <repoPath> <args>` and resolve with its output. Rejects with a
+ * GitError, or with a 400 HttpError when `repoPath` could be read as an option.
+ */
+export async function runGit(
   repoPath: string,
   args: readonly string[],
   opts: RunGitOptions = {},
 ): Promise<GitResult> {
-  if (repoPath.startsWith('-')) throw badRequest('repository path must not start with "-"')
-  return spawnGit(['-C', repoPath, ...args], opts)
+  return spawnGit(['-C', assertRepoPath(repoPath), ...args], opts)
 }
 
 /**
- * Run `git <args>` without a repository (used for `git clone`). Everything else
- * operates on an existing repository and must use {@link runGit}.
+ * Run `git <args>` without a repository (used for `git clone` and `git --version`). Everything
+ * else operates on an existing repository and must use {@link runGit}.
  */
-export function runGitGlobal(
+export async function runGitGlobal(
   args: readonly string[],
   opts: RunGitOptions = {},
 ): Promise<GitResult> {
   return spawnGit(args, opts)
 }
 
-interface ChildError extends Error {
+/**
+ * Run `git -C <repoPath> <args>` and hand stdout to `sink` chunk by chunk
+ * instead of buffering it, for output that may not fit in memory (counting the
+ * lines of a huge blob). Resolves once git exited successfully; rejects with a
+ * GitError exactly like {@link runGit}.
+ */
+export async function runGitStreaming(
+  repoPath: string,
+  args: readonly string[],
+  sink: (chunk: Buffer) => void,
+  opts: StreamGitOptions = {},
+): Promise<void> {
+  const argv = ['-C', assertRepoPath(repoPath), ...args]
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn('git', argv, {
+      env: gitEnv(opts.env),
+      windowsHide: true,
+      signal: opts.signal,
+      timeout: opts.timeoutMs ?? 0,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+    let failure: ChildFailure | undefined
+    let settled = false
+    const fail = (err: GitError) => {
+      if (settled) return
+      settled = true
+      reject(err)
+    }
+    child.stdout.on('data', (chunk: Buffer) => {
+      try {
+        sink(chunk)
+      } catch (err) {
+        child.kill()
+        fail(
+          new GitError(
+            argv,
+            null,
+            redact(stderr),
+            err instanceof Error ? err.message : String(err),
+          ),
+        )
+      }
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (stderr.length < MAX_STDERR_CHARS) stderr += chunk.toString('utf8')
+    })
+    child.on('error', (err: Error) => {
+      failure = err as ChildFailure
+      // A spawn failure (git missing) never reaches 'close'; an abort does, once git has exited.
+      if (child.pid === undefined) fail(toGitError(argv, failure, redact(stderr)))
+    })
+    child.on('close', (code, signal) => {
+      if (settled) return
+      if (failure) return fail(toGitError(argv, failure, redact(stderr)))
+      if (code === 0) {
+        settled = true
+        resolve()
+        return
+      }
+      fail(toGitError(argv, { code, killed: child.killed, signal }, redact(stderr)))
+    })
+  })
+}
+
+/** What Node reports about a child that did not exit cleanly. */
+interface ChildFailure {
+  name?: string
   code?: number | string | null
   killed?: boolean
   signal?: NodeJS.Signals | null
@@ -90,7 +162,7 @@ interface ChildError extends Error {
 function spawnGit(argv: readonly string[], opts: RunGitOptions): Promise<GitResult> {
   const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
   return new Promise((resolve, reject) => {
-    const child = execFile(
+    const child: ChildProcess = execFile(
       'git',
       [...argv],
       {
@@ -99,33 +171,38 @@ function spawnGit(argv: readonly string[], opts: RunGitOptions): Promise<GitResu
         timeout: opts.timeoutMs ?? 0,
         signal: opts.signal,
         windowsHide: true,
-        env: {
-          ...process.env,
-          ...opts.env,
-          // Never block on a username/password prompt; fail instead.
-          GIT_TERMINAL_PROMPT: '0',
-          // Untranslated, byte-stable messages and output.
-          LC_ALL: 'C',
-          // Read-only commands must not take the index lock in the user's checkout.
-          GIT_OPTIONAL_LOCKS: '0',
-        },
+        env: gitEnv(opts.env),
       },
       (error, stdout, stderr) => {
-        const stderrText = redact(stderr.toString('utf8'))
-        if (!error) {
-          resolve({ stdout, stderr: stderrText, exitCode: 0, truncated: false })
-          return
+        const settle = () => {
+          const stderrText = redact(stderr.toString('utf8'))
+          if (!error) {
+            resolve({ stdout, stderr: stderrText, exitCode: 0, truncated: false })
+            return
+          }
+          const err = error as ChildFailure
+          if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && opts.truncateStdout) {
+            resolve({ stdout, stderr: stderrText, exitCode: 0, truncated: true })
+            return
+          }
+          if (typeof err.code === 'number' && opts.okExitCodes?.includes(err.code)) {
+            resolve({ stdout, stderr: stderrText, exitCode: err.code, truncated: false })
+            return
+          }
+          reject(toGitError(argv, err, stderrText))
         }
-        const err = error as ChildError
-        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && opts.truncateStdout) {
-          resolve({ stdout, stderr: stderrText, exitCode: 0, truncated: true })
-          return
+        // On abort, execFile reports before git has actually exited. Wait for it, so a caller
+        // that removes a half-written clone afterwards is not racing a still-running git.
+        if (
+          error &&
+          isAbort(error as ChildFailure) &&
+          child.exitCode === null &&
+          child.signalCode === null
+        ) {
+          child.once('close', settle)
+        } else {
+          settle()
         }
-        if (typeof err.code === 'number' && opts.okExitCodes?.includes(err.code)) {
-          resolve({ stdout, stderr: stderrText, exitCode: err.code, truncated: false })
-          return
-        }
-        reject(toGitError(argv, err, stderrText))
       },
     )
     // git may exit before reading stdin (EPIPE); that is not an error for us.
@@ -135,14 +212,31 @@ function spawnGit(argv: readonly string[], opts: RunGitOptions): Promise<GitResu
   })
 }
 
-function toGitError(argv: readonly string[], err: ChildError, stderr: string): GitError {
+/** The environment every git child gets: the caller's, plus the fixed settings we rely on. */
+function gitEnv(extra: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...extra,
+    // Never block on a username/password prompt; fail instead.
+    GIT_TERMINAL_PROMPT: '0',
+    // Untranslated, byte-stable messages and output.
+    LC_ALL: 'C',
+    // Read-only commands must not take the index lock in the user's checkout.
+    GIT_OPTIONAL_LOCKS: '0',
+  }
+}
+
+const isAbort = (err: ChildFailure): boolean =>
+  err.code === 'ABORT_ERR' || err.name === 'AbortError'
+
+function toGitError(argv: readonly string[], err: ChildFailure, stderr: string): GitError {
   const cmd = `git ${subcommand(argv)}`
   const detail = stderr.trim().split('\n').filter(Boolean).pop()
   const suffix = detail ? `: ${detail}` : ''
   if (err.code === 'ENOENT') {
     return new GitError(argv, null, stderr, 'git is not installed or not on PATH')
   }
-  if (err.code === 'ABORT_ERR' || err.name === 'AbortError') {
+  if (isAbort(err)) {
     return new GitError(argv, null, stderr, `${cmd} was aborted`)
   }
   if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
@@ -173,6 +267,11 @@ function subcommand(argv: readonly string[]): string {
 function redact(text: string): string {
   const clean = text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1***@')
   return clean.length > MAX_STDERR_CHARS ? `${clean.slice(0, MAX_STDERR_CHARS)}…` : clean
+}
+
+function assertRepoPath(repoPath: string): string {
+  if (repoPath.startsWith('-')) throw badRequest('repository path must not start with "-"')
+  return repoPath
 }
 
 /**

@@ -121,23 +121,57 @@ describe('review routes', () => {
     expect(res.status).toBe(201)
   })
 
-  it('PATCH / DELETE comment', async () => {
-    const { forge, project, send } = setup()
+  it('PATCH / DELETE comment, after tying the id to the route’s PR', async () => {
+    const { forge, project, send, repo } = setup()
     forge.updateComment.mockResolvedValue({ ...COMMENT, body: 'edited' })
     const url = API_ROUTES.prComment(project.id, 7, 'PRRC_1')
 
     const patched = await send('PATCH', url, { body: 'edited' })
     expect(patched.status).toBe(200)
     expect(await patched.json()).toMatchObject({ id: 'PRRC_1', body: 'edited' })
+    expect(forge.assertCommentInPullRequest).toHaveBeenCalledWith('PRRC_1', repo, 7)
     expect(forge.updateComment).toHaveBeenCalledWith('PRRC_1', 'edited')
+    const [checked] = forge.assertCommentInPullRequest.mock.invocationCallOrder
+    const [updated] = forge.updateComment.mock.invocationCallOrder
+    expect(checked).toBeLessThan(updated as number)
 
+    // Junk is rejected before GitHub is asked anything.
     const blank = await send('PATCH', url, { body: '' })
     expect(blank.status).toBe(400)
+    expect(forge.assertCommentInPullRequest).toHaveBeenCalledTimes(1)
 
     const deleted = await send('DELETE', url)
     expect(deleted.status).toBe(200)
     expect(await deleted.json()).toEqual({ ok: true })
+    expect(forge.assertCommentInPullRequest).toHaveBeenLastCalledWith('PRRC_1', repo, 7)
     expect(forge.deleteComment).toHaveBeenCalledWith('PRRC_1')
+  })
+
+  it('refuses comment and thread ids that belong to another pull request', async () => {
+    const { forge, project, send } = setup()
+    forge.assertCommentInPullRequest.mockRejectedValue(
+      new HttpError(404, 'comment not found in this pull request', 'not_found'),
+    )
+    forge.assertThreadInPullRequest.mockRejectedValue(
+      new HttpError(404, 'thread not found in this pull request', 'not_found'),
+    )
+    const comment = API_ROUTES.prComment(project.id, 7, 'PRRC_other')
+    const replies = API_ROUTES.prThreadReplies(project.id, 7, 'PRRT_other')
+
+    const patched = await send('PATCH', comment, { body: 'edited' })
+    expect(patched.status).toBe(404)
+    expect(await patched.json()).toEqual({
+      error: 'comment not found in this pull request',
+      code: 'not_found',
+    })
+    expect((await send('DELETE', comment)).status).toBe(404)
+    const replied = await send('POST', replies, { body: 'thanks' })
+    expect(replied.status).toBe(404)
+    expect(((await replied.json()) as ApiError).error).toBe('thread not found in this pull request')
+
+    expect(forge.updateComment).not.toHaveBeenCalled()
+    expect(forge.deleteComment).not.toHaveBeenCalled()
+    expect(forge.replyToThread).not.toHaveBeenCalled()
   })
 
   it('decodes URL-encoded ids', async () => {
@@ -149,8 +183,8 @@ describe('review routes', () => {
     expect(forge.deleteComment).toHaveBeenCalledWith(legacyId)
   })
 
-  it('POST thread replies', async () => {
-    const { forge, project, send } = setup()
+  it('POST thread replies, after tying the thread to the route’s PR', async () => {
+    const { forge, project, send, repo } = setup()
     forge.replyToThread.mockResolvedValue({
       comment: { ...COMMENT, isPending: false },
       threadId: 'PRRT_1',
@@ -160,6 +194,7 @@ describe('review routes', () => {
     })
     expect(res.status).toBe(201)
     expect(await res.json()).toMatchObject({ threadId: 'PRRT_1', comment: { id: 'PRRC_1' } })
+    expect(forge.assertThreadInPullRequest).toHaveBeenCalledWith('PRRT_1', repo, 7)
     expect(forge.replyToThread).toHaveBeenCalledWith('PRRT_1', 'thanks')
   })
 

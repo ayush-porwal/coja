@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HttpError } from '../routes/http.js'
-import { assertPathspec, assertRevision, GitError, runGit } from './run.js'
+import { assertPathspec, assertRevision, GitError, runGit, runGitStreaming } from './run.js'
 
 let dir: string
 
@@ -107,8 +107,20 @@ describe('runGit', () => {
     await expect(runGit(dir, ['--version'], { maxBuffer: 4 })).rejects.toThrow(/more output/)
   })
 
-  it('refuses a repository path that looks like an option', () => {
-    expect(() => runGit('-C', ['status'])).toThrow(HttpError)
+  it('refuses a repository path that looks like an option, as a rejection', async () => {
+    await expect(runGit('-C', ['status'])).rejects.toThrow(HttpError)
+    await expect(runGitStreaming('-C', ['status'], () => {})).rejects.toThrow(HttpError)
+  })
+
+  it('rejects with an abort GitError when the signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const err = await runGit(dir, ['--version'], { signal: controller.signal }).catch(
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(GitError)
+    expect((err as GitError).message).toContain('was aborted')
+    expect((err as GitError).exitCode).toBeNull()
   })
 
   it('redacts credentials embedded in URLs on stderr', async () => {
@@ -118,5 +130,42 @@ describe('runGit', () => {
     expect(err).toBeInstanceOf(GitError)
     expect(err.stderr).not.toContain('secret')
     expect(err.message).not.toContain('secret')
+  })
+})
+
+describe('runGitStreaming', () => {
+  it('hands stdout to the sink in order and resolves on exit 0', async () => {
+    const chunks: Buffer[] = []
+    await runGitStreaming(dir, ['--version'], (chunk) => chunks.push(chunk))
+    const streamed = Buffer.concat(chunks).toString('utf8')
+    expect(streamed).toBe((await runGit(dir, ['--version'])).stdout.toString('utf8'))
+    expect(streamed).toMatch(/^git version /)
+  })
+
+  it('rejects with a GitError carrying stderr on a non-zero exit', async () => {
+    const err = await runGitStreaming(dir, ['rev-parse', '--git-dir'], () => {}).catch(
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(GitError)
+    expect(err).toMatchObject({ exitCode: 128, args: ['-C', dir, 'rev-parse', '--git-dir'] })
+    expect((err as GitError).stderr).toContain('not a git repository')
+  })
+
+  it('rejects with an abort GitError when aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const err = await runGitStreaming(dir, ['--version'], () => {}, {
+      signal: controller.signal,
+    }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(GitError)
+    expect((err as GitError).message).toContain('was aborted')
+  })
+
+  it('turns a throwing sink into a GitError', async () => {
+    const err = await runGitStreaming(dir, ['--version'], () => {
+      throw new Error('sink exploded')
+    }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(GitError)
+    expect((err as GitError).message).toBe('sink exploded')
   })
 })

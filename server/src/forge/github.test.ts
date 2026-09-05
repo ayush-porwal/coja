@@ -10,7 +10,7 @@ import {
   SUMMARY_REQUIRED,
 } from './github.js'
 import type { GqlFn } from './graphql.js'
-import type * as q from './queries.js'
+import * as q from './queries.js'
 
 // ---------------------------------------------------------------------------
 // Fake gql: dispatch on the operation name, record every call
@@ -167,6 +167,22 @@ describe('deriveMyReviewState', () => {
         ],
       ),
     ).toBe('changes_requested')
+  })
+
+  it('keeps the standing opinion when a later COMMENTED review exists (GitHub rule)', () => {
+    // A published thread reply creates a COMMENTED review; it must not hide "changes requested".
+    expect(
+      deriveMyReviewState(
+        [],
+        [r('CHANGES_REQUESTED', '2026-01-01T00:00:00Z'), r('COMMENTED', '2026-01-02T00:00:00Z')],
+      ),
+    ).toBe('changes_requested')
+    expect(
+      deriveMyReviewState(
+        [],
+        [r('APPROVED', '2026-01-01T00:00:00Z'), r('COMMENTED', '2026-01-02T00:00:00Z')],
+      ),
+    ).toBe('approved')
   })
 })
 
@@ -868,6 +884,105 @@ describe('GitHubForge.addPendingComment', () => {
     expect(input.side).toBe('LEFT')
   })
 
+  it('sends the range when only the side differs (same line number across the diff)', async () => {
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PendingReview: pendingLookup({ id: 'PRR_old', comments: { totalCount: 0 } }),
+      AddThread: () => addedThread('PRR_old', 1),
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    await forge.addPendingComment(REPO, REFS, {
+      path: 'src/audit.ts',
+      body: 'both sides',
+      line: 9,
+      side: 'RIGHT',
+      startLine: 9,
+      startSide: 'LEFT',
+    })
+    expect(fake.callsTo('AddThread')[0]?.vars.input).toMatchObject({
+      line: 9,
+      side: 'RIGHT',
+      startLine: 9,
+      startSide: 'LEFT',
+    })
+    // startSide alone implies startLine = line on the other side.
+    await forge.addPendingComment(REPO, REFS, {
+      path: 'src/audit.ts',
+      body: 'implicit start',
+      line: 4,
+      side: 'RIGHT',
+      startSide: 'LEFT',
+    })
+    expect(fake.callsTo('AddThread')[1]?.vars.input).toMatchObject({
+      line: 4,
+      side: 'RIGHT',
+      startLine: 4,
+      startSide: 'LEFT',
+    })
+  })
+
+  it('serializes comments per PR so two quick first comments share one pending review', async () => {
+    let created: q.RawPendingReview | null = null
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PendingReview: (vars) => pendingLookup(created)(vars),
+      StartReview: () => {
+        created = { id: 'PRR_new', comments: { totalCount: 0 } }
+        return { addPullRequestReview: { pullRequestReview: { id: 'PRR_new', state: 'PENDING' } } }
+      },
+      AddThread: () => addedThread('PRR_new', 1),
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    const input = { path: 'src/audit.ts', body: 'nit', line: 5, side: 'RIGHT' as const }
+    const [first, second] = await Promise.all([
+      forge.addPendingComment(REPO, REFS, input),
+      forge.addPendingComment(REPO, REFS, { ...input, line: 6 }),
+    ])
+    expect(fake.ops()).toEqual([
+      'Viewer',
+      'PendingReview',
+      'StartReview',
+      'AddThread',
+      'PendingReview',
+      'AddThread',
+    ])
+    expect(first.pendingReview.id).toBe('PRR_new')
+    expect(second.pendingReview.id).toBe('PRR_new')
+  })
+
+  it('does not let a failed comment block the ones queued behind it, and does not serialize across PRs', async () => {
+    let threads = 0
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PendingReview: pendingLookup({ id: 'PRR_old', comments: { totalCount: 0 } }),
+      AddThread: () =>
+        threads++ === 0
+          ? { addPullRequestReviewThread: { thread: null } }
+          : addedThread('PRR_old', 1),
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    const input = { path: 'x', body: 'y', line: 1, side: 'RIGHT' as const }
+    const [failed, ok] = await Promise.allSettled([
+      forge.addPendingComment(REPO, REFS, input),
+      forge.addPendingComment(REPO, REFS, input),
+    ])
+    expect(failed.status).toBe('rejected')
+    expect(ok.status).toBe('fulfilled')
+
+    // Different PRs run concurrently: both lookups happen before either thread is added.
+    const other = fakeGql({
+      Viewer: VIEWER,
+      PendingReview: pendingLookup({ id: 'PRR_old', comments: { totalCount: 0 } }),
+      AddThread: () => addedThread('PRR_old', 1),
+    })
+    const concurrent = new GitHubForge({ gql: other.gql })
+    await Promise.all([
+      concurrent.addPendingComment(REPO, REFS, input),
+      concurrent.addPendingComment(REPO, { ...REFS, number: 8 }, input),
+    ])
+    expect(other.ops().slice(0, 3)).toEqual(['Viewer', 'PendingReview', 'PendingReview'])
+  })
+
   it('explains a null thread (line outside the diff) as a 422', async () => {
     const fake = fakeGql({
       Viewer: VIEWER,
@@ -897,6 +1012,44 @@ describe('GitHubForge comment / reply / viewed mutations', () => {
     expect(res.threadId).toBe('PRRT_x')
     expect(res.comment).toMatchObject({ id: 'PRRC_r', isMine: true, isPending: false })
     expect(res.comment).not.toHaveProperty('reviewId')
+    expect(res).not.toHaveProperty('pendingReview')
+  })
+
+  it('reports the pending review a reply landed in', async () => {
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      Reply: () => ({
+        addPullRequestReviewThreadReply: {
+          comment: {
+            ...rawComment({ id: 'PRRC_r', state: 'PENDING', author: { login: 'me' } }),
+            pullRequestReview: { id: 'PRR_p', state: 'PENDING', comments: { totalCount: 3 } },
+          },
+        },
+      }),
+    })
+    const res = await new GitHubForge({ gql: fake.gql }).replyToThread('PRRT_x', 'thanks')
+    expect(res.comment).toMatchObject({
+      isPending: true,
+      reviewId: 'PRR_p',
+      reviewState: 'PENDING',
+    })
+    expect(res.pendingReview).toEqual({ id: 'PRR_p', commentCount: 3 })
+
+    // A published reply belongs to a submitted review: no pendingReview.
+    const published = fakeGql({
+      Viewer: VIEWER,
+      Reply: () => ({
+        addPullRequestReviewThreadReply: {
+          comment: {
+            ...rawComment({ id: 'PRRC_s', author: { login: 'me' } }),
+            pullRequestReview: { id: 'PRR_c', state: 'COMMENTED', comments: { totalCount: 1 } },
+          },
+        },
+      }),
+    })
+    const pub = await new GitHubForge({ gql: published.gql }).replyToThread('PRRT_x', 'ok')
+    expect(pub.comment.isPending).toBe(false)
+    expect(pub).not.toHaveProperty('pendingReview')
   })
 
   it('updates and deletes comments', async () => {
@@ -937,6 +1090,80 @@ describe('GitHubForge comment / reply / viewed mutations', () => {
       { op: 'MarkViewed', vars: { pullRequestId: 'PR_1', path: 'src/a.ts' } },
       { op: 'UnmarkViewed', vars: { pullRequestId: 'PR_1', path: 'src/a.ts' } },
     ])
+  })
+})
+
+describe('GitHubForge.assertCommentInPullRequest / assertThreadInPullRequest', () => {
+  const owner = (number: number, login = 'acme', name = 'widgets') => ({
+    node: { pullRequest: { number, repository: { name, owner: { login } } } },
+  })
+  const rejection = (p: Promise<unknown>) =>
+    p.then(
+      () => 'resolved',
+      (e: unknown) => e,
+    )
+
+  it('passes when the node belongs to the PR, comparing slugs case-insensitively', async () => {
+    const fake = fakeGql({
+      CommentOwner: () => owner(7, 'Acme', 'Widgets'),
+      ThreadOwner: () => owner(7),
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    await expect(forge.assertCommentInPullRequest('PRRC_1', REPO, 7)).resolves.toBeUndefined()
+    await expect(forge.assertThreadInPullRequest('PRRT_1', REPO, 7)).resolves.toBeUndefined()
+    expect(fake.calls).toEqual([
+      { op: 'CommentOwner', vars: { id: 'PRRC_1' } },
+      { op: 'ThreadOwner', vars: { id: 'PRRT_1' } },
+    ])
+    // The documents pin the node type, so a thread id never resolves through the comment check.
+    expect(q.COMMENT_OWNER).toContain('... on PullRequestReviewComment')
+    expect(q.COMMENT_OWNER).not.toContain('PullRequestReviewThread')
+    expect(q.THREAD_OWNER).toContain('... on PullRequestReviewThread')
+  })
+
+  it('404s for another PR, another repository, an unknown node or a node of the wrong type', async () => {
+    const answers: Record<string, unknown> = {
+      otherPr: owner(8),
+      otherRepo: owner(7, 'someone-else'),
+      otherName: owner(7, 'acme', 'gadgets'),
+      unknown: { node: null },
+      wrongType: { node: {} },
+    }
+    const fake = fakeGql({
+      CommentOwner: (vars) => answers[String(vars.id)],
+      ThreadOwner: (vars) => answers[String(vars.id)],
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    for (const id of Object.keys(answers)) {
+      const err = await rejection(forge.assertCommentInPullRequest(id, REPO, 7))
+      expect(err, id).toBeInstanceOf(HttpError)
+      expect(err).toMatchObject({
+        status: 404,
+        code: 'not_found',
+        message: 'comment not found in this pull request',
+      })
+      const threadErr = await rejection(forge.assertThreadInPullRequest(id, REPO, 7))
+      expect(threadErr).toMatchObject({
+        status: 404,
+        message: 'thread not found in this pull request',
+      })
+    }
+  })
+
+  it("folds GitHub's own NOT_FOUND into the same 404 but propagates other failures", async () => {
+    const fake = fakeGql({
+      CommentOwner: (vars) => {
+        if (vars.id === 'garbage') throw new ForgeError('Could not resolve to a node', 404)
+        throw new ForgeError('rate limited', 429)
+      },
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    const notFound = await rejection(forge.assertCommentInPullRequest('garbage', REPO, 7))
+    expect(notFound).toBeInstanceOf(HttpError)
+    expect(notFound).toMatchObject({ status: 404, code: 'not_found' })
+    const limited = await rejection(forge.assertCommentInPullRequest('PRRC_1', REPO, 7))
+    expect(limited).toBeInstanceOf(ForgeError)
+    expect(limited).toMatchObject({ status: 429 })
   })
 })
 

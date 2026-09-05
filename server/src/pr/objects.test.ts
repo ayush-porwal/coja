@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { runGit } from '../git/run.js'
 import { APP_TS_HEAD, createFixture, type Fixture } from '../git/test-fixture.js'
 import { HttpError } from '../routes/http.js'
 import { getBlob, getChangedFiles, getFileDiff } from './objects.js'
+
+const MiB = 1024 * 1024
 
 let fx: Fixture
 
@@ -78,6 +81,8 @@ describe('getBlob', () => {
       path: 'src/app.ts',
       text: APP_TS_HEAD,
       lineCount: 13,
+      size: Buffer.byteLength(APP_TS_HEAD),
+      truncated: false,
     })
   })
 
@@ -88,6 +93,7 @@ describe('getBlob', () => {
       endLine: 3,
       lineCount: 13,
       text: "  const greeting = 'HELLO'\n  const flag = '-weird'",
+      truncated: false,
     })
     const clamped = await getBlob(fx.originDir, 'head', fx.headOid, 'src/app.ts', 12, 99)
     expect(clamped).toMatchObject({ startLine: 12, endLine: 13, text: '\nexport { helper }' })
@@ -127,5 +133,116 @@ describe('getBlob', () => {
     )
     expect((bin as HttpError).status).toBe(400)
     expect((bin as HttpError).message).toContain('binary')
+  })
+})
+
+describe('getBlob on files over the size cap', () => {
+  const FIRST_LINE = 'export function app(): string {\n' // 32 bytes; line 2 starts right after
+  const size = Buffer.byteLength(APP_TS_HEAD)
+
+  it('keeps whole lines only, counts every line of the real file and says it truncated', async () => {
+    // 40 bytes: the whole first line plus the beginning of the second, which is dropped.
+    const cut = await getBlob(
+      fx.originDir,
+      'head',
+      fx.headOid,
+      'src/app.ts',
+      undefined,
+      undefined,
+      {
+        maxBytes: 40,
+      },
+    )
+    expect(cut).toEqual({
+      ref: 'head',
+      oid: fx.headOid,
+      path: 'src/app.ts',
+      text: FIRST_LINE,
+      lineCount: 13,
+      size,
+      truncated: true,
+    })
+    // A cap that ends exactly on a newline keeps that line.
+    const exact = await getBlob(
+      fx.originDir,
+      'head',
+      fx.headOid,
+      'src/app.ts',
+      undefined,
+      undefined,
+      {
+        maxBytes: 32,
+      },
+    )
+    expect(exact).toMatchObject({ text: FIRST_LINE, lineCount: 13, truncated: true })
+    // A cap too small for even one line yields no text, but still the truth about the file.
+    const nothing = await getBlob(
+      fx.originDir,
+      'head',
+      fx.headOid,
+      'src/app.ts',
+      undefined,
+      undefined,
+      {
+        maxBytes: 8,
+      },
+    )
+    expect(nothing).toMatchObject({ text: '', lineCount: 13, size, truncated: true })
+  })
+
+  it('reports a range as truncated only when it reaches past the lines read', async () => {
+    const opts = { maxBytes: 40 }
+    const within = await getBlob(fx.originDir, 'head', fx.headOid, 'src/app.ts', 1, 1, opts)
+    expect(within).toMatchObject({
+      startLine: 1,
+      endLine: 1,
+      text: FIRST_LINE.trimEnd(),
+      lineCount: 13,
+      truncated: false,
+    })
+    const past = await getBlob(fx.originDir, 'head', fx.headOid, 'src/app.ts', 1, 3, opts)
+    expect(past).toMatchObject({
+      startLine: 1,
+      endLine: 3,
+      text: FIRST_LINE.trimEnd(),
+      truncated: true,
+    })
+    const beyond = await getBlob(fx.originDir, 'head', fx.headOid, 'src/app.ts', 5, 6, opts)
+    expect(beyond).toMatchObject({ startLine: 5, endLine: 6, text: '', truncated: true })
+  })
+
+  it('handles a real file over 5 MiB with the default cap', async () => {
+    // A 6,000,000-byte blob of 60,000 hundred-byte lines, committed with plumbing only.
+    const line = `${'x'.repeat(99)}\n`
+    const lineCount = 60_000
+    const content = line.repeat(lineCount)
+    const blobOid = (
+      await runGit(fx.originDir, ['hash-object', '-w', '--stdin'], { input: content })
+    ).stdout
+      .toString('utf8')
+      .trim()
+    const treeOid = (
+      await runGit(fx.originDir, ['mktree'], { input: `100644 blob ${blobOid}\tbig.txt\n` })
+    ).stdout
+      .toString('utf8')
+      .trim()
+    const commitOid = await fx.git(fx.originDir, ['commit-tree', treeOid, '-m', 'big file'])
+
+    const blob = await getBlob(fx.originDir, 'head', commitOid, 'big.txt')
+    const completeLines = Math.floor((5 * MiB) / line.length)
+    expect(blob).toMatchObject({ size: content.length, lineCount, truncated: true })
+    expect(blob.text).toBe(line.repeat(completeLines))
+    expect(blob.text.length).toBeLessThanOrEqual(5 * MiB)
+
+    const tail = await getBlob(fx.originDir, 'head', commitOid, 'big.txt', lineCount - 9, lineCount)
+    expect(tail).toMatchObject({
+      startLine: lineCount - 9,
+      endLine: lineCount,
+      text: '',
+      lineCount,
+      truncated: true,
+    })
+    const head = await getBlob(fx.originDir, 'head', commitOid, 'big.txt', 1, 2)
+    expect(head).toMatchObject({ text: `${line}${line}`.trimEnd(), truncated: false })
   })
 })

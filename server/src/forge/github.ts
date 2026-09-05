@@ -51,6 +51,8 @@ export interface GitHubForgeOptions {
 export class GitHubForge implements Forge {
   private readonly gql: GqlFn
   private viewerPromise: Promise<Actor> | undefined
+  /** Per-PR tail of the `addPendingComment` chain, so first comments cannot race (see below). */
+  private readonly commentQueues = new Map<string, Promise<void>>()
 
   constructor(opts: GitHubForgeOptions) {
     this.gql = opts.gql
@@ -182,7 +184,27 @@ export class GitHubForge implements Forge {
     }
   }
 
-  async addPendingComment(
+  /**
+   * Serialized per pull request: two quick first comments would otherwise both
+   * see "no pending review" and each create one, leaving the second invisible
+   * to the UI. A failed comment does not block the ones queued behind it.
+   */
+  addPendingComment(
+    repo: RepoRef,
+    pr: PullRequestRefs,
+    input: AddCommentRequest,
+  ): Promise<AddCommentResponse> {
+    const k = `${repo.owner}/${repo.repo}#${pr.number}`.toLowerCase()
+    const previous = this.commentQueues.get(k) ?? Promise.resolve()
+    const run = previous.then(() => this.addPendingCommentNow(repo, pr, input))
+    const settled: Promise<void> = run.then(noop, noop).finally(() => {
+      if (this.commentQueues.get(k) === settled) this.commentQueues.delete(k)
+    })
+    this.commentQueues.set(k, settled)
+    return run
+  }
+
+  private async addPendingCommentNow(
     repo: RepoRef,
     pr: PullRequestRefs,
     input: AddCommentRequest,
@@ -206,9 +228,12 @@ export class GitHubForge implements Forge {
       line: input.line,
       side: input.side,
     }
-    if (input.startLine != null && input.startLine !== input.line) {
-      threadInput.startLine = input.startLine
-      threadInput.startSide = input.startSide ?? input.side
+    // A range is anything that does not start exactly where it ends (line and side).
+    const startLine = input.startLine ?? input.line
+    const startSide = input.startSide ?? input.side
+    if (startLine !== input.line || startSide !== input.side) {
+      threadInput.startLine = startLine
+      threadInput.startSide = startSide
     }
     const d = await this.gql<q.AddThreadData>(q.ADD_THREAD, { input: threadInput })
     const thread = d.addPullRequestReviewThread?.thread
@@ -240,7 +265,13 @@ export class GitHubForge implements Forge {
     const d = await this.gql<q.ReplyData>(q.REPLY, { threadId, body })
     const comment = d.addPullRequestReviewThreadReply?.comment
     if (!comment) throw new ForgeError('GitHub did not return the posted reply.', 502)
-    return { comment: mapComment(comment, viewer.login), threadId }
+    const mapped = mapComment(comment, viewer.login)
+    const review = comment.pullRequestReview
+    const pendingReview: PendingReview | undefined =
+      mapped.isPending && review
+        ? { id: review.id, commentCount: review.comments?.totalCount ?? 1 }
+        : undefined
+    return { comment: mapped, threadId, ...(pendingReview ? { pendingReview } : {}) }
   }
 
   async updateComment(commentId: string, body: string): Promise<ReviewComment> {
@@ -253,6 +284,44 @@ export class GitHubForge implements Forge {
 
   async deleteComment(commentId: string): Promise<void> {
     await this.gql<q.DeleteCommentData>(q.DELETE_COMMENT, { id: commentId })
+  }
+
+  assertCommentInPullRequest(commentId: string, repo: RepoRef, number: number): Promise<void> {
+    return this.assertNodeInPullRequest(q.COMMENT_OWNER, commentId, repo, number, 'comment')
+  }
+
+  assertThreadInPullRequest(threadId: string, repo: RepoRef, number: number): Promise<void> {
+    return this.assertNodeInPullRequest(q.THREAD_OWNER, threadId, repo, number, 'thread')
+  }
+
+  /**
+   * 404 (`not_found`) unless the node resolves, is of the expected type, and
+   * belongs to PR `number` of `repo`. GitHub's own "could not resolve node" is
+   * folded into the same 404 so a bad id is indistinguishable from another PR's.
+   */
+  private async assertNodeInPullRequest(
+    doc: string,
+    id: string,
+    repo: RepoRef,
+    number: number,
+    what: 'comment' | 'thread',
+  ): Promise<void> {
+    let data: q.NodeOwnerData
+    try {
+      data = await this.gql<q.NodeOwnerData>(doc, { id })
+    } catch (err) {
+      if (err instanceof ForgeError && err.status === 404) throw notInPullRequest(what)
+      throw err
+    }
+    const pr = data.node?.pullRequest
+    if (
+      !pr ||
+      pr.number !== number ||
+      !sameSlug(pr.repository.owner.login, repo.owner) ||
+      !sameSlug(pr.repository.name, repo.repo)
+    ) {
+      throw notInPullRequest(what)
+    }
   }
 
   async setFileViewed(prId: string, path: string, viewed: boolean): Promise<FileViewedState> {
@@ -401,21 +470,22 @@ export function deriveMyReviewState(
   reviews: readonly (q.RawViewerReview | null)[] | null | undefined,
 ): MyReviewState {
   if (compact(pending).length > 0) return 'pending'
-  let latest: q.RawViewerReview | undefined
+  // GitHub's rule: the newest APPROVED / CHANGES_REQUESTED review is the reviewer's
+  // standing opinion, even when later COMMENTED reviews exist (a published reply
+  // creates one). Only when there is no opinionated review does "commented" apply.
+  let opinion: q.RawViewerReview | undefined
+  let commented = false
   for (const r of compact(reviews)) {
     if (r.state === 'PENDING') continue
-    if (!latest || (r.submittedAt ?? '') > (latest.submittedAt ?? '')) latest = r
+    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED') {
+      if (!opinion || (r.submittedAt ?? '') > (opinion.submittedAt ?? '')) opinion = r
+    } else {
+      commented = true
+    }
   }
-  switch (latest?.state) {
-    case undefined:
-      return 'none'
-    case 'APPROVED':
-      return 'approved'
-    case 'CHANGES_REQUESTED':
-      return 'changes_requested'
-    default:
-      return 'commented'
-  }
+  if (opinion?.state === 'APPROVED') return 'approved'
+  if (opinion?.state === 'CHANGES_REQUESTED') return 'changes_requested'
+  return commented ? 'commented' : 'none'
 }
 
 function mapPendingReview(
@@ -549,6 +619,14 @@ export function buildConversation(
   items.sort((a, b) => a.at - b.at)
   return items.map((x) => x.item)
 }
+
+const noop = (): void => {}
+
+/** GitHub owner and repository names are case-insensitive. */
+const sameSlug = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
+
+const notInPullRequest = (what: 'comment' | 'thread') =>
+  new HttpError(404, `${what} not found in this pull request`, 'not_found')
 
 const repoNotFound = (repo: RepoRef) =>
   new ForgeError(`Repository ${repo.owner}/${repo.repo} was not found on GitHub.`, 404)

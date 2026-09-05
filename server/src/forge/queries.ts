@@ -162,6 +162,20 @@ query ThreadCommentsPage($id: ID!, $after: String!) {
 }
 ${COMMENT_FIELDS}`
 
+/**
+ * The pull request a review comment / thread belongs to, for tying a
+ * client-supplied node id to the PR named in the route. Two documents, so an id
+ * of the other type resolves to no pull request at all. Variables: id
+ */
+const ownerQuery = (name: string, type: string) => /* GraphQL */ `
+query ${name}($id: ID!) {
+  node(id: $id) {
+    ... on ${type} { pullRequest { number repository { name owner { login } } } }
+  }
+}`
+export const COMMENT_OWNER = ownerQuery('CommentOwner', 'PullRequestReviewComment')
+export const THREAD_OWNER = ownerQuery('ThreadOwner', 'PullRequestReviewThread')
+
 /** The viewer's pending review on a PR, if any. Variables: owner, name, number, login */
 export const PENDING_REVIEW = /* GraphQL */ `
 query PendingReview($owner: String!, $name: String!, $number: Int!, $login: String!) {
@@ -215,7 +229,10 @@ ${THREAD_FIELDS}`
 export const REPLY = /* GraphQL */ `
 mutation Reply($threadId: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
-    comment { ...CommentFields }
+    comment {
+      ...CommentFields
+      pullRequestReview { id state comments(first: 1) { totalCount } }
+    }
   }
 }
 ${COMMENT_FIELDS}`
@@ -446,6 +463,11 @@ export interface PrIssueCommentsPageData {
 export interface ThreadCommentsPageData {
   node: { comments?: Connection<RawReviewComment> } | null
 }
+export interface NodeOwnerData {
+  node: {
+    pullRequest?: { number: number; repository: { name: string; owner: { login: string } } } | null
+  } | null
+}
 export interface PendingReviewData {
   repository: {
     pullRequest: {
@@ -469,8 +491,12 @@ export interface RawAddedThread extends RawThread {
 export interface AddThreadData {
   addPullRequestReviewThread: { thread: RawAddedThread | null } | null
 }
+/** A posted reply: `CommentFields` plus the owning review's comment count. */
+export interface RawReplyComment extends RawReviewComment {
+  pullRequestReview: { id: string; state: string; comments: { totalCount: number } | null } | null
+}
 export interface ReplyData {
-  addPullRequestReviewThreadReply: { comment: RawReviewComment | null } | null
+  addPullRequestReviewThreadReply: { comment: RawReplyComment | null } | null
 }
 export interface UpdateCommentData {
   updatePullRequestReviewComment: { pullRequestReviewComment: RawReviewComment | null } | null

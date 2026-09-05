@@ -4,19 +4,24 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HttpError } from '../routes/http.js'
 import {
+  assertGitVersion,
   blame,
   blobInfo,
   cloneBare,
+  countLines,
   diff,
   diffNameStatus,
   fetch,
   GH_CREDENTIAL_HELPER,
+  gitVersionProblem,
   grep,
   isBareRepo,
   isGitRepo,
   log,
   lsTree,
+  MIN_GIT_VERSION,
   mergeBase,
+  parseGitVersion,
   remoteUrl,
   revParse,
   showFile,
@@ -42,6 +47,32 @@ beforeAll(async () => {
 afterAll(async () => {
   await fx.cleanup()
   await rm(scratch, { recursive: true, force: true })
+})
+
+describe('toolchain', () => {
+  it('parses git --version output from every platform', () => {
+    expect(parseGitVersion('git version 2.55.0\n')).toEqual([2, 55, 0])
+    expect(parseGitVersion('git version 2.39.5 (Apple Git-154)')).toEqual([2, 39, 5])
+    expect(parseGitVersion('git version 2.45.1.windows.1')).toEqual([2, 45, 1])
+    expect(parseGitVersion('git version 3.0')).toEqual([3, 0, 0])
+    expect(parseGitVersion('not git')).toBeNull()
+    expect(parseGitVersion('')).toBeNull()
+  })
+
+  it('accepts the minimum and newer, explains anything older or unparseable', () => {
+    expect(MIN_GIT_VERSION).toBe('2.29')
+    expect(gitVersionProblem('git version 2.29.0')).toBeNull()
+    expect(gitVersionProblem('git version 2.29')).toBeNull()
+    expect(gitVersionProblem('git version 2.55.0')).toBeNull()
+    expect(gitVersionProblem('git version 3.0.0')).toBeNull()
+    expect(gitVersionProblem('git version 2.28.1')).toMatch(/2\.28\.1 is too old.*2\.29 or newer/)
+    expect(gitVersionProblem('git version 1.9.5')).toContain('too old')
+    expect(gitVersionProblem('gti: command not found')).toContain('could not understand')
+  })
+
+  it('assertGitVersion passes with the git on this machine', async () => {
+    await expect(assertGitVersion()).resolves.toBeUndefined()
+  })
 })
 
 describe('repository facts', () => {
@@ -143,6 +174,34 @@ describe('blobs and trees', () => {
 
     await expect(showFile(fx.originDir, fx.headOid, 'nope.ts')).rejects.toBeInstanceOf(GitError)
     await expect(showFile(fx.originDir, fx.headOid, 'src')).rejects.toBeInstanceOf(GitError)
+  })
+
+  it('countLines counts like the UI splits text, without holding the blob', async () => {
+    expect(await countLines(fx.originDir, fx.headOid, 'src/app.ts')).toBe(13)
+    expect(await countLines(fx.originDir, fx.baseOid, 'src/remove-me.ts')).toBe(1)
+
+    // Edge cases through a hand-made tree: no trailing newline, empty, blank lines only.
+    const blob = async (content: string) =>
+      (await runGit(fx.originDir, ['hash-object', '-w', '--stdin'], { input: content })).stdout
+        .toString('utf8')
+        .trim()
+    const entries = [
+      `100644 blob ${await blob('a\nb')}\tno-newline.txt`,
+      `100644 blob ${await blob('')}\tempty.txt`,
+      `100644 blob ${await blob('\n\n\n')}\tblank.txt`,
+    ]
+    const tree = (
+      await runGit(fx.originDir, ['mktree'], { input: `${entries.join('\n')}\n` })
+    ).stdout
+      .toString('utf8')
+      .trim()
+    expect(await countLines(fx.originDir, tree, 'no-newline.txt')).toBe(2)
+    expect(await countLines(fx.originDir, tree, 'empty.txt')).toBe(0)
+    expect(await countLines(fx.originDir, tree, 'blank.txt')).toBe(3)
+
+    await expect(countLines(fx.originDir, fx.headOid, 'src')).rejects.toBeInstanceOf(GitError)
+    await expect(countLines(fx.originDir, fx.headOid, 'nope.ts')).rejects.toBeInstanceOf(GitError)
+    await expect(countLines(fx.originDir, fx.headOid, '../x')).rejects.toThrow(HttpError)
   })
 
   it('lsTree lists recursively with sizes, non-recursively with trees, and by path', async () => {
@@ -368,6 +427,15 @@ describe('blame', () => {
       blame(fx.originDir, fx.headOid, 'src/app.ts', { startLine: 4, endLine: 2 }),
     ).rejects.toThrow(HttpError)
   })
+
+  it('treats glob characters in the path literally', async () => {
+    const lines = await blame(fx.originDir, fx.headOid, 'app/[id]/page.tsx')
+    expect(lines.map((l) => l.content)).toEqual([
+      'export default function Page() {',
+      '  return <div>id</div>',
+      '}',
+    ])
+  })
 })
 
 describe('cloneBare', () => {
@@ -387,6 +455,25 @@ describe('cloneBare', () => {
   it('fails with a GitError for an unreachable source', async () => {
     const dir = path.join(scratch, 'missing.git')
     await expect(cloneBare(path.join(fx.root, 'nope.git'), dir)).rejects.toBeInstanceOf(GitError)
+  })
+
+  it('is killed when it exceeds the timeout', async () => {
+    const dir = path.join(scratch, 'slow.git')
+    const err = await cloneBare(fx.originDir, dir, { timeoutMs: 1 }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(GitError)
+    expect((err as GitError).message).toContain('timed out')
+    expect((err as GitError).exitCode).toBeNull()
+  })
+
+  it('can be aborted through a signal', async () => {
+    const dir = path.join(scratch, 'aborted.git')
+    const controller = new AbortController()
+    controller.abort()
+    const err = await cloneBare(fx.originDir, dir, { signal: controller.signal }).catch(
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(GitError)
+    expect((err as GitError).message).toContain('was aborted')
   })
 })
 

@@ -50,6 +50,8 @@ export function createGraphqlClient(opts: GraphqlClientOptions): GqlFn {
     try {
       res = await fetchImpl(endpoint, {
         method: 'POST',
+        // The token must only ever go to `endpoint`; a redirect elsewhere is a failure.
+        redirect: 'error',
         headers: {
           authorization: `bearer ${token}`,
           'content-type': 'application/json',

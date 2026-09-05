@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { packageVersion } from './paths.js'
 import { registerChatRoutes } from './routes/chat.js'
 import { registerGitRoutes } from './routes/git.js'
+import { registerRequestGuard } from './routes/guard.js'
 import { onApiError } from './routes/http.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerPullRoutes } from './routes/pulls.js'
@@ -17,6 +18,8 @@ export interface AppOptions {
   publicDir: string
   /** API backends. Omitted only by the static-serving tests. */
   services?: AppServices
+  /** Extra hostnames accepted in the Host header (loopback is always allowed). */
+  allowedHosts?: string[]
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -45,6 +48,9 @@ export function createApp(opts: AppOptions) {
   const version = packageVersion()
   const app = new Hono()
 
+  // Host allow-list + cross-site request refusal: a web page on another origin
+  // must never be able to drive this loopback API (see docs/decisions.md).
+  registerRequestGuard(app, { allowedHosts: opts.allowedHosts })
   app.onError(onApiError)
 
   app.get(API_ROUTES.health, (c) => {
@@ -91,14 +97,10 @@ export function createApp(opts: AppOptions) {
 
 /** Map a URL pathname onto a file inside `root`; null when malformed or escaping the root. */
 function resolveUnder(root: string, pathname: string): string | null {
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(pathname)
-  } catch {
-    return null
-  }
-  if (decoded.includes('\0')) return null
-  const resolved = path.resolve(root, `.${decoded}`)
+  // Hono already percent-decodes `c.req.path`; decoding again would turn an
+  // encoded `%2F` into a separator. Containment below is the real guarantee.
+  if (pathname.includes('\0')) return null
+  const resolved = path.resolve(root, `.${pathname}`)
   const prefix = root.endsWith(path.sep) ? root : root + path.sep
   if (resolved !== root && !resolved.startsWith(prefix)) return null
   return resolved

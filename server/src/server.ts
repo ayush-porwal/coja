@@ -13,6 +13,8 @@ export interface StartOptions {
   publicDir: string
   /** API backends; see `createServices()`. */
   services?: AppServices
+  /** Extra hostnames accepted in the Host header (loopback is always allowed). */
+  allowedHosts?: string[]
 }
 
 export interface RunningServer {
@@ -25,7 +27,11 @@ export interface RunningServer {
 
 /** Start the HTTP server; if the requested port is taken, retry exactly once on a random free port. */
 export async function startServer(opts: StartOptions): Promise<RunningServer> {
-  const app = createApp({ publicDir: opts.publicDir, services: opts.services })
+  const app = createApp({
+    publicDir: opts.publicDir,
+    services: opts.services,
+    allowedHosts: opts.allowedHosts,
+  })
 
   let server: ServerType
   try {

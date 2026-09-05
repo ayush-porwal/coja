@@ -46,16 +46,21 @@ export async function addLocalProject(ctx: ServerContext, inputPath: string): Pr
   return insertProject(ctx.db, { kind: 'local', owner: gh.owner, repo: gh.repo, path: repoPath })
 }
 
-export interface CloneDeps {
+export interface CloneOptions {
+  /**
+   * Aborting it (the route passes the request's signal) kills the clone; the
+   * half-written directory is removed either way.
+   */
+  signal?: AbortSignal
   /** Injected by tests; defaults to {@link cloneBare}. */
-  clone?: (url: string, dir: string) => Promise<void>
+  clone?: (url: string, dir: string, opts: { signal?: AbortSignal }) => Promise<void>
 }
 
 /** Clone `owner/repo` (or a github.com URL) bare into the data dir and register it. */
 export async function addCloneProject(
   ctx: ServerContext,
   slug: string,
-  deps: CloneDeps = {},
+  opts: CloneOptions = {},
 ): Promise<Project> {
   const parsed = parseRepoSlug(slug)
   if (!parsed) {
@@ -68,13 +73,23 @@ export async function addCloneProject(
   const existing = findProjectByPath(ctx.db, dir)
   if (existing) return existing
 
-  if (!(await isGitRepo(dir))) {
+  if (await isGitRepo(dir)) {
+    // Only a bare clone of ours is adopted; anything else at that path is not ours to use.
+    if (!(await isBareRepo(dir))) {
+      throw badRequest(
+        `${dir} already exists but is not a bare repository; move it away and try again`,
+      )
+    }
+  } else {
     await mkdir(path.dirname(dir), { recursive: true })
     // A leftover from an interrupted clone would make `git clone` refuse the directory.
     await rm(dir, { recursive: true, force: true })
     try {
-      await (deps.clone ?? cloneBare)(`https://github.com/${owner}/${repo}.git`, dir)
+      await (opts.clone ?? cloneBare)(`https://github.com/${owner}/${repo}.git`, dir, {
+        signal: opts.signal,
+      })
     } catch (err) {
+      // Whether git failed or the request was aborted, never leave a half-written clone behind.
       await rm(dir, { recursive: true, force: true })
       if (err instanceof GitError) {
         const detail = err.stderr.trim() || err.message

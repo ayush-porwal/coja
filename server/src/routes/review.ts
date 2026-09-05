@@ -85,26 +85,32 @@ export function registerReviewRoutes(app: Hono, ctx: ServerContext, deps: { forg
     return c.json(res, 201)
   })
 
+  // Comment and thread ids come from the client; each is tied to the route's PR before any
+  // mutation, so a request under one PR can never edit, delete or reply on another PR's thread.
   app.patch(`${PR_ROUTE}/comments/:commentId`, async (c) => {
-    resolvePr(ctx, c)
+    const { repo, number } = resolvePr(ctx, c)
     const commentId = requireParam(c, 'commentId')
     const { body } = await parseBody(c, bodySchema)
+    await forge.assertCommentInPullRequest(commentId, repo, number)
     const comment: ReviewComment = await forge.updateComment(commentId, body)
     return c.json(comment)
   })
 
   app.delete(`${PR_ROUTE}/comments/:commentId`, async (c) => {
-    resolvePr(ctx, c)
-    await forge.deleteComment(requireParam(c, 'commentId'))
+    const { repo, number } = resolvePr(ctx, c)
+    const commentId = requireParam(c, 'commentId')
+    await forge.assertCommentInPullRequest(commentId, repo, number)
+    await forge.deleteComment(commentId)
     return c.json({ ok: true as const })
   })
 
   // Replies publish immediately (decisions.md) unless the viewer has a pending review open, in
   // which case GitHub attaches the reply to it; the response's comment.isPending tells the UI.
   app.post(`${PR_ROUTE}/threads/:threadId/replies`, async (c) => {
-    resolvePr(ctx, c)
+    const { repo, number } = resolvePr(ctx, c)
     const threadId = requireParam(c, 'threadId')
     const { body } = await parseBody(c, bodySchema)
+    await forge.assertThreadInPullRequest(threadId, repo, number)
     const res: ReplyResponse = await forge.replyToThread(threadId, body)
     return c.json(res, 201)
   })

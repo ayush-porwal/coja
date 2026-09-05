@@ -333,8 +333,17 @@ export interface BlobResponse {
   startLine?: number
   endLine?: number
   text: string
-  /** Total line count of the file at that ref. */
+  /** Total line count of the file at that ref — of the whole file, even when `truncated`. */
   lineCount: number
+  /** Size of the whole file at that ref, in bytes. */
+  size: number
+  /**
+   * True when `text` is incomplete: the server reads at most 5 MiB of a file, and the
+   * requested text (the whole file, or the range) reached past that. `text` then ends at a
+   * line boundary and holds only the leading part of what was asked for; `lineCount` and
+   * `size` still describe the whole file.
+   */
+  truncated: boolean
 }
 
 // ---------------------------------------------------------------------------

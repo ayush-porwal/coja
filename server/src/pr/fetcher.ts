@@ -9,6 +9,20 @@ const REMOTE = 'origin'
 
 const key = (projectId: string, number: number): string => `${projectId}#${number}`
 
+/** A background fetch: the oids it was started for, plus the newest request that arrived meanwhile. */
+interface Inflight {
+  refs: PullRequestRefs
+  done: Promise<FetchStatus>
+  /** Set when `ensure` saw different oids while this fetch ran; decided again once it finishes. */
+  next?: PullRequestRefs
+}
+
+/** An `ensure` call still deciding whether to fetch. */
+interface Deciding {
+  refs: PullRequestRefs
+  done: Promise<FetchStatus>
+}
+
 /**
  * Brings a pull request's objects into a project's repository, lazily and in
  * the background (design.md: "Fetch is lazy and non-blocking").
@@ -18,13 +32,17 @@ const key = (projectId: string, number: number): string => `${projectId}#${numbe
  * while an unchanged PR is `ready` without touching the network. Status is
  * kept in memory per `${projectId}#${number}`; the refs themselves persist in
  * the repository.
+ *
+ * Requests are never dropped: when `ensure` is asked for other oids while a
+ * fetch is in flight, the newest oids are decided again as soon as that fetch
+ * finishes, so a head that moves mid-fetch still ends `ready` at the new oids.
  */
 export class PrFetcher {
   private readonly statuses = new Map<string, FetchStatus>()
   /** Background fetches, by key. */
-  private readonly inflight = new Map<string, Promise<FetchStatus>>()
+  private readonly inflight = new Map<string, Inflight>()
   /** `ensure` calls still deciding whether to fetch, by key; concurrent callers share one. */
-  private readonly ensuring = new Map<string, Promise<FetchStatus>>()
+  private readonly ensuring = new Map<string, Deciding>()
 
   status(projectId: string, number: number): FetchStatus {
     return this.statuses.get(key(projectId, number)) ?? { state: 'idle' }
@@ -37,61 +55,97 @@ export class PrFetcher {
    */
   ensure(project: Project, refs: PullRequestRefs): Promise<FetchStatus> {
     const k = key(project.id, refs.number)
-    if (this.inflight.has(k)) return Promise.resolve(this.status(project.id, refs.number))
-    const pending = this.ensuring.get(k)
-    if (pending) return pending
-    const decision = this.decide(project, refs, k).finally(() => this.ensuring.delete(k))
-    this.ensuring.set(k, decision)
-    return decision
+    const running = this.inflight.get(k)
+    if (running) {
+      // The newest request wins; the oids already being fetched need nothing more.
+      running.next = sameOids(running.refs, refs) ? undefined : refs
+      return Promise.resolve(this.status(project.id, refs.number))
+    }
+    const deciding = this.ensuring.get(k)
+    if (deciding) {
+      if (sameOids(deciding.refs, refs)) return deciding.done
+      return deciding.done.then(() => this.ensure(project, refs))
+    }
+    return this.beginDecision(project, refs, k)
   }
 
-  /** Resolve once no fetch is running for the PR (tests and eager callers). */
+  /** Resolve once nothing is pending or running for the PR (tests and eager callers). */
   async waitFor(projectId: string, number: number): Promise<FetchStatus> {
     const k = key(projectId, number)
-    const pending = this.ensuring.get(k)
-    if (pending) await pending
-    const running = this.inflight.get(k)
-    if (running) return running
-    return this.status(projectId, number)
+    for (;;) {
+      const deciding = this.ensuring.get(k)
+      if (deciding) {
+        await deciding.done
+        continue
+      }
+      const running = this.inflight.get(k)
+      if (running) {
+        await running.done
+        continue
+      }
+      return this.status(projectId, number)
+    }
   }
 
-  private async decide(project: Project, refs: PullRequestRefs, k: string): Promise<FetchStatus> {
-    const repo = project.path
-    const n = refs.number
-    const [head, base] = await Promise.all([
-      revParse(repo, prHeadRef(n)),
-      revParse(repo, prBaseRef(n)),
-    ])
-    if (head && base && head === refs.headRefOid && base === refs.baseRefOid) {
-      const current = this.statuses.get(k)
-      if (current?.state === 'ready' && current.headOid === head && current.baseOid === base) {
-        return current
-      }
-      const ready: FetchStatus = {
-        state: 'ready',
-        headOid: head,
-        baseOid: base,
-        mergeBaseOid: await mergeBase(repo, base, head),
-        ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
-        finishedAt: current?.finishedAt ?? nowIso(),
-      }
-      this.statuses.set(k, ready)
-      return ready
+  private beginDecision(project: Project, refs: PullRequestRefs, k: string): Promise<FetchStatus> {
+    const entry: Deciding = {
+      refs,
+      done: this.decide(project, refs, k).finally(() => {
+        if (this.ensuring.get(k) === entry) this.ensuring.delete(k)
+      }),
     }
-    return this.start(project, refs, k)
+    this.ensuring.set(k, entry)
+    return entry.done
+  }
+
+  /** Never rejects: a failing check (e.g. no merge base) becomes an `error` status, like a failed fetch. */
+  private async decide(project: Project, refs: PullRequestRefs, k: string): Promise<FetchStatus> {
+    try {
+      const repo = project.path
+      const n = refs.number
+      const [head, base] = await Promise.all([
+        revParse(repo, prHeadRef(n)),
+        revParse(repo, prBaseRef(n)),
+      ])
+      if (head && base && head === refs.headRefOid && base === refs.baseRefOid) {
+        const current = this.statuses.get(k)
+        if (current?.state === 'ready' && current.headOid === head && current.baseOid === base) {
+          return current
+        }
+        const ready: FetchStatus = {
+          state: 'ready',
+          headOid: head,
+          baseOid: base,
+          mergeBaseOid: await mergeBase(repo, base, head),
+          ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
+          finishedAt: current?.finishedAt ?? nowIso(),
+        }
+        this.statuses.set(k, ready)
+        return ready
+      }
+      return this.start(project, refs, k)
+    } catch (err) {
+      const failed: FetchStatus = { state: 'error', error: describe(err), finishedAt: nowIso() }
+      this.statuses.set(k, failed)
+      return failed
+    }
   }
 
   private start(project: Project, refs: PullRequestRefs, k: string): FetchStatus {
     const startedAt = nowIso()
     const fetching: FetchStatus = { state: 'fetching', startedAt }
     this.statuses.set(k, fetching)
-    const run = this.runFetch(project, refs, startedAt)
-      .then((final) => {
+    const entry: Inflight = {
+      refs,
+      done: this.runFetch(project, refs, startedAt).then((final) => {
         this.statuses.set(k, final)
+        if (this.inflight.get(k) === entry) this.inflight.delete(k)
+        // The oids changed while we fetched: check the repository against the newest ones.
+        if (entry.next) void this.beginDecision(project, entry.next, k)
         return final
-      })
-      .finally(() => this.inflight.delete(k))
-    this.inflight.set(k, run)
+      }),
+    }
+    this.inflight.set(k, entry)
     return fetching
   }
 
@@ -126,6 +180,9 @@ export class PrFetcher {
     }
   }
 }
+
+const sameOids = (a: PullRequestRefs, b: PullRequestRefs): boolean =>
+  a.headRefOid === b.headRefOid && a.baseRefOid === b.baseRefOid
 
 function isValidRefName(name: string): boolean {
   return (

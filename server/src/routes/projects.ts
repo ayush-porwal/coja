@@ -24,7 +24,7 @@ export function registerProjectRoutes(app: Hono, ctx: ServerContext): void {
     const project =
       body.kind === 'local'
         ? await addLocalProject(ctx, body.path)
-        : await addCloneProject(ctx, body.slug)
+        : await addCloneProject(ctx, body.slug, { signal: c.req.raw.signal })
     return c.json<Project>(project)
   })
 

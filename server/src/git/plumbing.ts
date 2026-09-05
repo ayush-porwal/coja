@@ -1,6 +1,13 @@
 import { badRequest } from '../routes/http.js'
 import type { GitChangedFile, GitChangeStatus } from '../shared/api.js'
-import { assertPathspec, assertRevision, GitError, runGit, runGitGlobal } from './run.js'
+import {
+  assertPathspec,
+  assertRevision,
+  GitError,
+  runGit,
+  runGitGlobal,
+  runGitStreaming,
+} from './run.js'
 
 /**
  * Typed wrappers over git plumbing. Every function takes `repo`, a directory
@@ -18,7 +25,55 @@ export const GH_CREDENTIAL_HELPER = '!gh auth git-credential'
 /** git considers a file binary when its first 8000 bytes contain a NUL. */
 const BINARY_PROBE_BYTES = 8000
 
-const DEFAULT_FETCH_TIMEOUT_MS = 15 * 60 * 1000
+/** Network operations (fetch, clone) are killed after this long. */
+export const DEFAULT_NETWORK_TIMEOUT_MS = 15 * 60 * 1000
+
+// ---------------------------------------------------------------------------
+// Toolchain
+// ---------------------------------------------------------------------------
+
+/** Oldest supported git: `fetch --no-write-fetch-head`, used for every PR fetch, arrived in 2.29. */
+export const MIN_GIT_VERSION = '2.29'
+
+/** `[major, minor, patch]` from `git --version` output (any build suffix ignored), or null. */
+export function parseGitVersion(output: string): [number, number, number] | null {
+  const m = /^git version (\d+)\.(\d+)(?:\.(\d+))?/.exec(output.trim())
+  if (!m) return null
+  return [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)]
+}
+
+/** Why `git --version` output is unacceptable, phrased for the user; null when it is fine. */
+export function gitVersionProblem(output: string): string | null {
+  const version = parseGitVersion(output)
+  if (!version) {
+    return `could not understand \`git --version\` output "${output.trim()}"; coja needs git ${MIN_GIT_VERSION} or newer`
+  }
+  const [min, ...rest] = MIN_GIT_VERSION.split('.').map(Number)
+  const [major, minor, patch] = version
+  const tooOld =
+    major < (min ?? 0) ||
+    (major === min && minor < (rest[0] ?? 0)) ||
+    (major === min && minor === rest[0] && patch < (rest[1] ?? 0))
+  if (tooOld) {
+    return `git ${major}.${minor}.${patch} is too old: coja needs git ${MIN_GIT_VERSION} or newer (for \`git fetch --no-write-fetch-head\`). Upgrade git and try again`
+  }
+  return null
+}
+
+/** Fail fast at startup unless the `git` on PATH is at least {@link MIN_GIT_VERSION}. */
+export async function assertGitVersion(): Promise<void> {
+  let output: string
+  try {
+    output = (await runGitGlobal(['--version'])).stdout.toString('utf8')
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `git is required but could not be run (${reason}). Install git ${MIN_GIT_VERSION} or newer and make sure it is on PATH`,
+    )
+  }
+  const problem = gitVersionProblem(output)
+  if (problem) throw new Error(problem)
+}
 
 // ---------------------------------------------------------------------------
 // Repository facts
@@ -109,7 +164,7 @@ export async function fetch(
       remote,
       ...refspecs,
     ],
-    { signal: opts.signal, timeoutMs: opts.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS },
+    { signal: opts.signal, timeoutMs: opts.timeoutMs ?? DEFAULT_NETWORK_TIMEOUT_MS },
   )
 }
 
@@ -117,6 +172,10 @@ export async function fetch(
  * `git clone --bare` `url` into `dir` (which must not exist yet), with `gh` as
  * the repository's credential helper — both for the clone itself and for later
  * fetches of private repositories. No token is ever written to disk.
+ *
+ * The clone is killed after `timeoutMs` (default {@link DEFAULT_NETWORK_TIMEOUT_MS})
+ * or when `signal` aborts, and the promise settles only once git has exited,
+ * so the caller can remove the half-written directory without racing it.
  */
 export async function cloneBare(
   url: string,
@@ -138,7 +197,7 @@ export async function cloneBare(
       url,
       dir,
     ],
-    { signal: opts.signal, timeoutMs: opts.timeoutMs ?? 0 },
+    { signal: opts.signal, timeoutMs: opts.timeoutMs ?? DEFAULT_NETWORK_TIMEOUT_MS },
   )
   // `clone -c` persists the values above; make sure the helper is really there.
   const helpers = await runGit(dir, ['config', '--get-all', 'credential.helper'], {
@@ -202,6 +261,29 @@ export async function showFile(
   let size = buf.byteLength
   if (res.truncated) size = (await blobInfo(repo, oid, path)).size ?? size
   return { text: binary ? '' : buf.toString('utf8'), binary, size, truncated: res.truncated }
+}
+
+/**
+ * Number of lines in the blob at `<oid>:<path>`, counted while streaming
+ * `git cat-file blob` so a blob of any size costs no memory. Counts the way
+ * the UI splits text: a final line without a trailing newline counts, an empty
+ * blob has none. Fails with GitError when the object is not a blob.
+ */
+export async function countLines(repo: string, oid: string, path: string): Promise<number> {
+  assertRevision(oid)
+  assertPathspec(path)
+  const NEWLINE = 0x0a
+  let newlines = 0
+  let bytes = 0
+  let lastByte = NEWLINE
+  await runGitStreaming(repo, ['cat-file', 'blob', `${oid}:${path}`], (chunk) => {
+    if (chunk.byteLength === 0) return
+    bytes += chunk.byteLength
+    for (let i = chunk.indexOf(NEWLINE); i !== -1; i = chunk.indexOf(NEWLINE, i + 1)) newlines++
+    lastByte = chunk[chunk.byteLength - 1] ?? lastByte
+  })
+  if (bytes === 0) return 0
+  return newlines + (lastByte === NEWLINE ? 0 : 1)
 }
 
 export interface TreeEntry {
@@ -502,7 +584,8 @@ export async function blame(
 ): Promise<BlameLine[]> {
   assertRevision(oid)
   assertPathspec(path)
-  const args = ['blame', '--porcelain']
+  // Literal pathspecs: `[id]` in a path is a directory name, never a glob.
+  const args = ['--literal-pathspecs', 'blame', '--porcelain']
   if (opts.startLine !== undefined || opts.endLine !== undefined) {
     const start = opts.startLine ?? 1
     const end = opts.endLine

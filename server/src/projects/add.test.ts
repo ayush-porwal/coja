@@ -1,10 +1,10 @@
-import { access, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ServerContext } from '../context.js'
 import { openDb } from '../db.js'
-import { isBareRepo } from '../git/plumbing.js'
+import { cloneBare, isBareRepo } from '../git/plumbing.js'
 import { GitError } from '../git/run.js'
 import { createFixture, type Fixture } from '../git/test-fixture.js'
 import { HttpError } from '../routes/http.js'
@@ -109,6 +109,44 @@ describe('addCloneProject', () => {
     expect(err.message).toContain('boom')
     await expect(access(cloneDir(ctx.dataDir, 'acme', 'broken'))).rejects.toThrow()
     expect(listProjects(ctx.db).some((p) => p.repo === 'broken')).toBe(false)
+  })
+
+  it('refuses to adopt a repository at the clone path that is not bare', async () => {
+    const dir = cloneDir(ctx.dataDir, 'acme', 'worktree')
+    await mkdir(dir, { recursive: true })
+    await fx.git(dir, ['init', '--quiet', '-b', 'main'])
+    const err = await status(
+      addCloneProject(ctx, 'acme/worktree', {
+        clone: async () => {
+          throw new Error('should not clone')
+        },
+      }),
+    )
+    expect(err.status).toBe(400)
+    expect(err.message).toContain('not a bare repository')
+    await access(dir) // whatever is there is not ours to delete
+    expect(listProjects(ctx.db).some((p) => p.repo === 'worktree')).toBe(false)
+  })
+
+  it('passes the abort signal to the clone and removes what an aborted clone left behind', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const seen: (AbortSignal | undefined)[] = []
+    const err = await status(
+      addCloneProject(ctx, 'acme/aborted', {
+        signal: controller.signal,
+        // The real clone, from the fixture's origin instead of github.com.
+        clone: (_url, dir, opts) => {
+          seen.push(opts.signal)
+          return cloneBare(fx.originDir, dir, opts)
+        },
+      }),
+    )
+    expect(seen).toEqual([controller.signal])
+    expect(err.status).toBe(400)
+    expect(err.message).toContain('aborted')
+    await expect(access(cloneDir(ctx.dataDir, 'acme', 'aborted'))).rejects.toThrow()
+    expect(listProjects(ctx.db).some((p) => p.repo === 'aborted')).toBe(false)
   })
 })
 
