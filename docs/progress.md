@@ -32,16 +32,16 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 - [ ] Validation: browser + `gh api` verification against fixture PR, twice from clean state
 
 ## Stage 5 — AI panel
-- [ ] Agent loop (Vercel AI SDK), exactly six read-only tools
-- [ ] Ask AI → context chip (visible, expandable, removable)
-- [ ] Tool calls + results rendered in chat; `file:line` citations scroll diff
-- [ ] Conversations persisted in SQLite; survive restart; new chat / history per PR
-- [ ] Model picker; "what does the AI see?" affordance
+- [x] Agent loop (Vercel AI SDK v7), exactly six read-only tools (`server/src/ai`; static invariant test forbids forge/child_process/fs/network imports; 45 tests incl. mock-model streaming)
+- [x] Ask AI → context chip (visible, expandable, removable) — browser: `src/auth/session.ts:14–15 @ head`, expands to the exact text, × removes
+- [~] Tool calls + results rendered in chat; `file:line` citations scroll diff — implemented + unit-tested (tool cards, remark citation plugin → bridge.scrollToLine); live browser check BLOCKED on an API key
+- [~] Conversations persisted in SQLite; survive restart; new chat / history per PR — server persists on `onEnd` (tested); restart round-trip BLOCKED on an API key
+- [x] Model picker; "what does the AI see?" affordance — browser: dialog shows the verbatim system prompt + six tools; no-provider notice links to Setup and the review tool keeps working
 - [ ] Validation: browser with real provider key (BLOCKED until `OPENAI_API_KEY` provided)
 
 ## Cross-cutting
 - [x] E2E fixture repo `coja-e2e-fixture` with PR #1 (adds, edits, rename, large file) — see e2e-fixture.md
-- [ ] Invariant audit (no worktree/checkout; no shell/write/network tool; no mutation reachable from agent output)
+- [~] Invariant audit — round 1 (Opus, server stages 2–4): Invariant 1 PASS, Invariant 2 PASS structurally; CSRF/DNS-rebinding gap (C1) + M3–M6/L7–L14 fixed and guard verified over HTTP. Round 2 (AI layer, guard, web) running.
 
 ## Resume notes (written 2026-09-04 23:55, before a usage-limit pause)
 
