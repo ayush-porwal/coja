@@ -10,9 +10,11 @@ import type {
 import {
   type CodeViewItem,
   type CodeViewLineSelection,
+  type CodeViewScrollTarget,
   type DiffLineAnnotation,
   type FileDiffMetadata,
   type LineAnnotation,
+  type PostRenderPhase,
   parsePatchFiles,
   type SelectedLineRange,
 } from '@pierre/diffs'
@@ -22,6 +24,15 @@ import { api } from '../api/client'
 import { bridge } from './bridge'
 import { CommentComposer } from './CommentComposer'
 import { CommentThread } from './CommentThread'
+import {
+  DIFF_CSS_VARIABLES,
+  DIFF_LAYOUT,
+  DIFF_THEME,
+  diffItemMetrics,
+  isZeroHeightRender,
+  languagesForPaths,
+  preloadDiffHighlighter,
+} from './diffLayout'
 import { errorMessage } from './errors'
 import { blobUrl, type DiffEntry, useAddComment, useSetViewed } from './hooks'
 import {
@@ -37,6 +48,7 @@ import {
   toDiffSide,
 } from './mapping'
 import { SelectionPopover } from './SelectionPopover'
+import { createScrollRetrier, type ScrollRetrier, scheduleAfterLayout } from './scrollRetry'
 import type { DiffStyle, ScrollRequest } from './types'
 
 interface DiffViewProps {
@@ -71,8 +83,18 @@ interface CachedItem {
   item: Item
 }
 
-const THEME = { dark: 'pierre-dark', light: 'pierre-light' }
 const HIGHLIGHT_MS = 2000
+
+/** The parts of CodeView's per-item render context that `onPostRender` reads (it receives the whole record). */
+interface PostRenderContext {
+  item: { id: string }
+  /** The item's current virtual height; 0 is the layout bug `isZeroHeightRender` describes. */
+  height: number
+  version: number | undefined
+}
+
+/** Events on the scroller that mean the user took over scrolling (CodeView drops its own pending target on the same ones). */
+const USER_SCROLL_INTENT_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
 
 function buildAnnotations(
   threads: readonly ReviewThread[] | undefined,
@@ -221,12 +243,125 @@ export function DiffView({
   }, [detail.files, diffs, parsed, threadsByPath, composer])
   const itemIds = useMemo(() => new Set(items.map((i) => i.id)), [items])
 
-  // --- options (memoized; the gutter callback reads the latest handler through a ref) ---
+  // --- highlighter preload ---------------------------------------------------------------
+  // With the grammars and themes loaded up front every item's first paint is synchronous,
+  // so CodeView never runs its height reconciliation on an unpainted item (diffLayout.ts).
+  // Time-boxed by the helper; a slow preload only means files highlight a moment later.
+  const pathsKey = detail.files.map((f) => f.path).join('\n')
+  const languages = useMemo(() => languagesForPaths(pathsKey.split('\n')), [pathsKey])
+  const [highlighterReady, setHighlighterReady] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void preloadDiffHighlighter(languages).then(() => {
+      if (!cancelled) setHighlighterReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [languages])
+
+  // --- virtual layout healing --------------------------------------------------------------
+  // Bumping the epoch changes `itemMetrics`, which makes CodeView recompute every item's
+  // height from its estimates (diffItemMetrics). Requested from `onPostRender` when an
+  // item painted with a zero virtual height; coalesced per frame and at most once per
+  // item version so a persistent zero can never loop.
+  const [layoutEpoch, setLayoutEpoch] = useState(0)
+  const healedRenders = useRef(new Set<string>())
+  const healFrame = useRef<number | null>(null)
+  const queueLayoutHeal = () => {
+    if (healFrame.current !== null) return
+    healFrame.current = requestAnimationFrame(() => {
+      healFrame.current = null
+      setLayoutEpoch((epoch) => epoch + 1)
+    })
+  }
+  useEffect(
+    () => () => {
+      if (healFrame.current !== null) cancelAnimationFrame(healFrame.current)
+    },
+    [],
+  )
+
+  // --- scroll requests from the tree and from citations -------------------------------
+  // `scrollTo` resolves against the current virtual layout and forgets the target once the
+  // position matches; the retrier re-issues it while the layout keeps settling and stops on
+  // user intent (scrollRetry.ts). `jumpTarget` lets `onPostRender` nudge it when the target
+  // item mounts.
+  const retrier = useRef<ScrollRetrier | null>(null)
+  const jumpTarget = useRef<string | null>(null)
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!scroller) return
+    const cancel = () => retrier.current?.cancel()
+    for (const type of USER_SCROLL_INTENT_EVENTS) {
+      scroller.addEventListener(type, cancel, { passive: true })
+    }
+    return () => {
+      for (const type of USER_SCROLL_INTENT_EVENTS) scroller.removeEventListener(type, cancel)
+    }
+  }, [scroller])
+  useEffect(() => () => retrier.current?.cancel(), [])
+
+  const handledNonce = useRef(0)
+  useEffect(() => {
+    if (!scrollRequest || scrollRequest.nonce === handledNonce.current) return
+    const id = fileItemId(scrollRequest.path)
+    // Not renderable yet (diff still loading, or the CodeView not mounted): this effect
+    // re-runs when items or readiness change and jumps as soon as the file exists.
+    if (!highlighterReady || !itemIds.has(id) || !codeViewRef.current) return
+    handledNonce.current = scrollRequest.nonce
+    const { line } = scrollRequest
+    const side = toAnnotationSide(scrollRequest.side)
+    // Tree entries jump-scroll (design §3); citations animate so the eye can follow.
+    const target: CodeViewScrollTarget =
+      line === undefined
+        ? { type: 'item', id, align: 'start', behavior: 'instant' }
+        : { type: 'line', id, lineNumber: line, side, align: 'center', behavior: 'smooth-auto' }
+    retrier.current?.cancel()
+    jumpTarget.current = id
+    const next = createScrollRetrier({
+      issue: () => codeViewRef.current?.scrollTo(target),
+      probe: () => {
+        const instance = codeViewRef.current?.getInstance()
+        if (!instance) return undefined
+        return { top: instance.getTopForItem(id), scrollHeight: instance.getScrollHeight() }
+      },
+      schedule: scheduleAfterLayout,
+    })
+    retrier.current = next
+    next.start()
+    if (line === undefined) return
+    const highlight: CodeViewLineSelection = { id, range: { start: line, end: line, side } }
+    setSelection(highlight)
+    setTimeout(
+      () => setSelection((current) => (current === highlight ? null : current)),
+      HIGHLIGHT_MS,
+    )
+  }, [scrollRequest, itemIds, highlighterReady])
+
+  // A relayout moves every item after the healed one; re-aim the jump once it has landed.
+  useEffect(() => {
+    if (layoutEpoch > 0) retrier.current?.nudge()
+  }, [layoutEpoch])
+
+  // --- options (memoized; callbacks read the latest handlers through refs) ------------
   const gutterClick = useRef<(range: SelectedLineRange, itemId: string) => void>(() => {})
   gutterClick.current = (range, itemId) => setSelection({ id: itemId, range })
+  const postRender = useRef<(phase: PostRenderPhase, context: PostRenderContext) => void>(() => {})
+  postRender.current = (phase, context) => {
+    const id = context.item.id
+    if (isZeroHeightRender(phase, context.height)) {
+      const key = `${id}#${context.version ?? 0}`
+      if (!healedRenders.current.has(key)) {
+        healedRenders.current.add(key)
+        queueLayoutHeal()
+      }
+    }
+    if (phase === 'mount' && id === jumpTarget.current) retrier.current?.nudge()
+  }
   const options = useMemo<CodeViewReactOptions<AnnotationMeta, undefined>>(
     () => ({
-      theme: THEME,
+      theme: DIFF_THEME,
       themeType: 'system',
       diffStyle,
       diffIndicators: 'classic',
@@ -234,44 +369,19 @@ export function DiffView({
       enableLineSelection: true,
       enableGutterUtility: true,
       lineHoverHighlight: 'both',
-      layout: { paddingTop: 12, paddingBottom: 12, gap: 12 },
+      layout: DIFF_LAYOUT,
+      itemMetrics: diffItemMetrics(layoutEpoch),
       onGutterUtilityClick: (range: SelectedLineRange, context: { item: Item }) =>
         gutterClick.current(range, context.item.id),
+      onPostRender: (
+        _node: HTMLElement,
+        _instance: unknown,
+        phase: PostRenderPhase,
+        context: PostRenderContext,
+      ) => postRender.current(phase, context),
     }),
-    [diffStyle],
+    [diffStyle, layoutEpoch],
   )
-
-  // --- scroll requests from the tree and from citations ------------------------------
-  const handledNonce = useRef(0)
-  useEffect(() => {
-    if (!scrollRequest || scrollRequest.nonce === handledNonce.current) return
-    const id = fileItemId(scrollRequest.path)
-    if (!itemIds.has(id)) return // the diff is still loading; retried when items change
-    const view = codeViewRef.current
-    if (!view) return
-    handledNonce.current = scrollRequest.nonce
-    const { line } = scrollRequest
-    if (line === undefined) {
-      // Tree entries jump-scroll (design §3); citations below animate so the eye can follow.
-      view.scrollTo({ type: 'item', id, align: 'start', behavior: 'instant' })
-      return
-    }
-    const side = toAnnotationSide(scrollRequest.side)
-    view.scrollTo({
-      type: 'line',
-      id,
-      lineNumber: line,
-      side,
-      align: 'center',
-      behavior: 'smooth-auto',
-    })
-    const highlight: CodeViewLineSelection = { id, range: { start: line, end: line, side } }
-    setSelection(highlight)
-    setTimeout(
-      () => setSelection((current) => (current === highlight ? null : current)),
-      HIGHLIGHT_MS,
-    )
-  }, [scrollRequest, itemIds])
 
   // --- selection popover actions ---------------------------------------------------------
   const selectionInfo = useMemo(() => {
@@ -287,9 +397,11 @@ export function DiffView({
 
   const askAi = async () => {
     if (!selectionInfo) return
-    const { path, range } = selectionInfo
+    const { path: itemPath, range } = selectionInfo
     const side = toDiffSide(range.endSide)
     const ref = side === 'RIGHT' ? 'head' : 'base'
+    // The LEFT side of a renamed file lives under its old name at the merge base.
+    const path = ref === 'base' ? (gitByPath.get(itemPath)?.previousPath ?? itemPath) : itemPath
     setAskBusy(true)
     setAskError(null)
     try {
@@ -387,12 +499,14 @@ export function DiffView({
         />
       )}
       <div className="relative min-h-0 flex-1">
-        {items.length > 0 ? (
+        {items.length > 0 && highlighterReady ? (
           <CodeView<AnnotationMeta, undefined>
             ref={codeViewRef}
+            containerRef={setScroller}
             items={items}
             options={options}
             className="coja-diff absolute inset-0 overflow-auto"
+            style={DIFF_CSS_VARIABLES}
             selectedLines={selection}
             onSelectedLinesChange={setSelection}
             renderAnnotation={renderAnnotation}
@@ -403,6 +517,7 @@ export function DiffView({
             fetchFailed={fetchFailed}
             fetchMessage={fetchError?.message ?? fetchStatus?.error}
             ready={ready}
+            preparing={items.length > 0}
             fileCount={detail.files.length}
             onRetryFetch={onRetryFetch}
           />
@@ -488,6 +603,8 @@ interface CenterMessageProps {
   fetchFailed: boolean
   fetchMessage: string | undefined
   ready: boolean
+  /** Diffs are in hand but the highlighter is still loading (see the preload in DiffView). */
+  preparing: boolean
   fileCount: number
   onRetryFetch(): void
 }
@@ -496,6 +613,7 @@ function CenterMessage({
   fetchFailed,
   fetchMessage,
   ready,
+  preparing,
   fileCount,
   onRetryFetch,
 }: CenterMessageProps) {
@@ -513,6 +631,16 @@ function CenterMessage({
           Retry fetch
         </button>
       </div>
+    )
+  } else if (preparing) {
+    content = (
+      <p className="flex items-center gap-2">
+        <span
+          className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500"
+          aria-hidden="true"
+        />
+        Preparing diff…
+      </p>
     )
   } else if (!ready) {
     content = (

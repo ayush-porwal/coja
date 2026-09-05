@@ -2,11 +2,15 @@
  * Styles for the PR review screen that Tailwind utilities cannot express:
  * - @pierre/diffs CSS variables (they inherit through the shadow boundary)
  * - typography for GitHub-rendered `bodyHTML` (no typography plugin)
+ *
+ * Never set `--diffs-line-height` (or anything else that changes a diff row's
+ * or file header's height) here: `diffLayout.ts` owns those numbers and sets
+ * them inline on the CodeView, because its virtual layout is computed from the
+ * same constants and drifts by rows × delta when the CSS disagrees.
  */
 
 .coja-diff {
   --diffs-font-size: 12.5px;
-  --diffs-line-height: 1.55;
   --diffs-tab-size: 4;
   --diffs-font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --diffs-header-font-family: ui-sans-serif, system-ui, sans-serif;

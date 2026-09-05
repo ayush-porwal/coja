@@ -1,8 +1,9 @@
 import type { ChangedFile, ReviewThread } from '@coja/shared/api'
 import type { FileTreeRowDecoration, GitStatusEntry } from '@pierre/trees'
 import { FileTree, useFileTree } from '@pierre/trees/react'
-import { useEffect, useMemo, useRef } from 'react'
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react'
 import { changeTypeToGitStatus } from './mapping'
+import { fileRowPathFromComposedPath, isPlainPrimaryPress } from './treeRow'
 import type { CenterSelection } from './types'
 
 interface SidebarProps {
@@ -29,6 +30,11 @@ function toGitStatus(files: readonly ChangedFile[]): GitStatusEntry[] {
  * Left column: the Overview entry plus the changed-files tree (`@pierre/trees`).
  * `useFileTree` reads its options exactly once, so everything dynamic goes
  * through refs (callbacks) or model methods (paths, git status, repaint).
+ *
+ * A file opens on `pointerdown` (see `treeRow.ts`): the tree's own click
+ * handling can miss the first press that also moves focus into the tree, and
+ * the press is the user's intent anyway. `onSelectionChange` still covers the
+ * keyboard and the tree's click, deduplicated against the current selection.
  */
 export function Sidebar({
   files,
@@ -116,6 +122,14 @@ export function Sidebar({
     }
   }, [model, selectedPath])
 
+  const openFileFromPress = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!isPlainPrimaryPress(event)) return
+    const path = fileRowPathFromComposedPath(event.nativeEvent.composedPath())
+    if (path === null || path === selectedPath) return
+    if (!files.some((f) => f.path === path)) return
+    onSelectFile(path)
+  }
+
   const isOverview = selection.kind === 'overview'
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -147,6 +161,7 @@ export function Sidebar({
         model={model}
         aria-label="Changed files"
         className="block min-h-0 flex-1 text-[12.5px]"
+        onPointerDown={openFileFromPress}
       />
     </div>
   )
