@@ -1,42 +1,39 @@
-import { API_ROUTES, type HealthResponse } from '@coja/shared/api'
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router'
+import { createQueryClient } from './api/queryClient'
+import { BootGuard } from './boot/BootGuard'
+import { NotFoundScreen } from './NotFoundScreen'
+import { PullRequestScreen } from './pr/PullRequestScreen'
+import { ProjectsScreen } from './projects/ProjectsScreen'
+import { PullRequestListScreen } from './prs/PullRequestListScreen'
+import { SetupScreen } from './setup/SetupScreen'
 
-const queryClient = new QueryClient()
+const queryClient = createQueryClient()
 
-async function fetchHealth(): Promise<HealthResponse> {
-  const res = await fetch(API_ROUTES.health)
-  if (!res.ok) throw new Error(`GET ${API_ROUTES.health} failed with ${res.status}`)
-  return (await res.json()) as HealthResponse
-}
-
-function Home() {
-  const health = useQuery({ queryKey: ['health'], queryFn: fetchHealth })
+/**
+ * The route table, wrapped in the boot guard so an unfinished setup always
+ * lands on `/setup`. Exported on its own so tests can mount it in a
+ * MemoryRouter with a fresh QueryClient.
+ */
+export function AppRoutes() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-100">
-      <div className="text-center">
-        <h1 className="text-5xl font-semibold tracking-tight">coja</h1>
-        <p className="mt-3 font-mono text-sm text-zinc-400">
-          {statusLine(health.data, health.isError)}
-        </p>
-      </div>
-    </main>
+    <BootGuard>
+      <Routes>
+        <Route path="/setup" element={<SetupScreen />} />
+        <Route path="/" element={<ProjectsScreen />} />
+        <Route path="/p/:projectId" element={<PullRequestListScreen />} />
+        <Route path="/p/:projectId/pr/:number" element={<PullRequestScreen />} />
+        <Route path="*" element={<NotFoundScreen />} />
+      </Routes>
+    </BootGuard>
   )
-}
-
-function statusLine(health: HealthResponse | undefined, isError: boolean): string {
-  if (health) return `v${health.version} · server: ok`
-  if (isError) return 'server: unreachable'
-  return 'connecting…'
 }
 
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />} />
-        </Routes>
+        <AppRoutes />
       </BrowserRouter>
     </QueryClientProvider>
   )

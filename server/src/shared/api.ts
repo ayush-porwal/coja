@@ -367,6 +367,8 @@ export interface ReplyRequest {
 export interface ReplyResponse {
   comment: ReviewComment
   threadId: string
+  /** Present when the reply landed in the viewer's pending review. */
+  pendingReview?: PendingReview
 }
 
 export interface SetViewedRequest {

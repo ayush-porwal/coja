@@ -1,1 +1,28 @@
 @import "tailwindcss";
+
+/*
+ * Base look: system font stack (Tailwind's default --font-sans), tabular numbers
+ * everywhere so PR numbers and counts line up, and a light theme that follows
+ * prefers-color-scheme — the same media query Tailwind's `dark:` variant uses.
+ * Plain CSS (no @apply) because the repo's Biome config does not enable
+ * Tailwind directives in its CSS parser.
+ */
+@layer base {
+  html {
+    color-scheme: light dark;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: var(--color-zinc-50);
+    color: var(--color-zinc-900);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      background-color: var(--color-zinc-950);
+      color: var(--color-zinc-100);
+    }
+  }
+}

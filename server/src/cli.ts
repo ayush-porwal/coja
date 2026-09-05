@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util'
 import { openBrowser } from './open-browser.js'
 import { packageVersion, resolvePublicDir } from './paths.js'
 import { startServer } from './server.js'
+import { createServices } from './services.js'
 
 const DEFAULT_PORT = 4321
 const DEFAULT_HOST = '127.0.0.1'
@@ -61,10 +62,12 @@ async function main(): Promise<void> {
     )
   }
 
+  const services = await createServices()
   const server = await startServer({
     port: cli.port,
     host: cli.host,
     publicDir: resolvePublicDir(),
+    services,
   })
   if (cli.port !== 0 && server.port !== cli.port) {
     console.log(`coja: port ${cli.port} is in use, using ${server.port} instead`)

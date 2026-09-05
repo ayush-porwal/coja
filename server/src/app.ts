@@ -2,11 +2,20 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Hono } from 'hono'
 import { packageVersion } from './paths.js'
+import { registerGitRoutes } from './routes/git.js'
+import { onApiError } from './routes/http.js'
+import { registerProjectRoutes } from './routes/projects.js'
+import { registerPullRoutes } from './routes/pulls.js'
+import { registerReviewRoutes } from './routes/review.js'
+import { registerSetupRoutes } from './routes/setup.js'
+import type { AppServices } from './services.js'
 import { API_ROUTES, type HealthResponse } from './shared/api.js'
 
 export interface AppOptions {
   /** Directory holding the built web UI (`index.html` plus hashed files under `assets/`). */
   publicDir: string
+  /** API backends. Omitted only by the static-serving tests. */
+  services?: AppServices
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -35,10 +44,21 @@ export function createApp(opts: AppOptions) {
   const version = packageVersion()
   const app = new Hono()
 
+  app.onError(onApiError)
+
   app.get(API_ROUTES.health, (c) => {
     const body: HealthResponse = { ok: true, version }
     return c.json(body)
   })
+
+  if (opts.services) {
+    const { ctx, forge, fetcher, secrets, ghAuthStatus } = opts.services
+    registerSetupRoutes(app, ctx, { secrets, ghAuthStatus })
+    registerProjectRoutes(app, ctx)
+    registerGitRoutes(app, ctx, { forge, fetcher })
+    registerPullRoutes(app, ctx, { forge })
+    registerReviewRoutes(app, ctx, { forge })
+  }
 
   // Unknown API routes are JSON 404s, never the SPA shell.
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))

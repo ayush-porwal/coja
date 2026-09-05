@@ -55,7 +55,11 @@ export interface Forge {
     pr: PullRequestRefs,
     input: AddCommentRequest,
   ): Promise<AddCommentResponse>
-  /** Reply immediately (published) to an existing review thread. */
+  /**
+   * Reply to an existing review thread. Published immediately when the viewer
+   * has no pending review; otherwise GitHub attaches it to the pending review
+   * (reported through `comment.isPending`).
+   */
   replyToThread(threadId: string, body: string): Promise<ReplyResponse>
   updateComment(commentId: string, body: string): Promise<ReviewComment>
   deleteComment(commentId: string): Promise<void>

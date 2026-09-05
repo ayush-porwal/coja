@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net'
 import { createAdaptorServer, type ServerType } from '@hono/node-server'
 import type { Hono } from 'hono'
 import { createApp } from './app.js'
+import type { AppServices } from './services.js'
 
 export interface StartOptions {
   /** Port to bind; 0 lets the OS pick a free one. */
@@ -10,6 +11,8 @@ export interface StartOptions {
   host: string
   /** Directory with the built web UI. */
   publicDir: string
+  /** API backends; see `createServices()`. */
+  services?: AppServices
 }
 
 export interface RunningServer {
@@ -22,7 +25,7 @@ export interface RunningServer {
 
 /** Start the HTTP server; if the requested port is taken, retry exactly once on a random free port. */
 export async function startServer(opts: StartOptions): Promise<RunningServer> {
-  const app = createApp({ publicDir: opts.publicDir })
+  const app = createApp({ publicDir: opts.publicDir, services: opts.services })
 
   let server: ServerType
   try {
