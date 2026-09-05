@@ -8,6 +8,7 @@ Private scratch repo used for all review-flow validation.
   - base `be001d5`, head `f634972`
 - Diff shape: 2 edits (`src/auth/session.ts`, `src/index.ts`, `docs/architecture.md`), 3 adds (`src/auth/audit.ts`, `src/auth/session.test.ts`, `src/util/timezones.ts` ≈2400 lines), 1 rename (`src/auth/token.ts` → `src/auth/bearer.ts`).
 - Seeded state: one published review thread on `src/auth/session.ts:12` (RIGHT) — thread `PRRT_kwDOUOt7o86fcn75` — for reply tests; one top-level issue comment.
+- Also present (not seeded by us): a "Codex Review" bot installed on the account posted a COMMENTED review with three inline threads (`src/auth/session.test.ts:3`, `src/index.ts:3`, `src/auth/session.ts:11`) at 2026-09-04T21:35Z. Real data; useful for rendering tests.
 - Local source of the fixture (scratch, may be gone): the branches live on GitHub; a fresh clone is enough.
 
 ## Resetting between runs
