@@ -267,12 +267,13 @@ network**:
 - **v1 = API keys** (platform.openai.com / console.anthropic.com), stored in
   the OS keychain. The only path that is documented and stable for both
   providers.
-- **OpenAI subscriptions ("Sign in with ChatGPT"):** experimental opt-in soon
-  after v1. OpenAI officially supports ChatGPT-subscription auth for Codex,
-  and third-party apps (opencode, community SDKs incl. an AI SDK provider)
-  ride the public Codex OAuth client against `chatgpt.com/backend-api/codex`
-  without pushback. Undocumented and revocable, so: opt-in, with API-key
-  fallback, drawing from the plan's Codex limits.
+- **OpenAI subscriptions ("Sign in with ChatGPT"):** supported and shipped.
+  OpenAI supports ChatGPT-subscription auth for Codex, and third-party apps
+  (opencode, community SDKs incl. an AI SDK provider) ride the same public
+  Codex OAuth client against `chatgpt.com/backend-api/codex` — a path OpenAI
+  has publicly said is fine for now. It is not a published API contract, so
+  coja keeps typed failure handling and an API-key fallback; usage draws from
+  the plan's Codex limits.
 - **Anthropic subscriptions: no.** Anthropic actively blocks third-party use
   of Claude Pro/Max OAuth: anti-spoofing safeguards since Jan 2026 (with user
   account bans), and since April 2026 third-party OAuth traffic bills to
