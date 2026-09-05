@@ -11,15 +11,15 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 - [x] Validation: build once, `node server/bin/coja.js` serves UI in browser (2026-09-04, health + SPA fallback verified in browser)
 
 ## Stage 2 — Git layer + Forge + gh auth
-- [ ] `git` plumbing wrapper (show / ls-tree / grep / diff / log / blame / fetch / merge-base) — no worktree/checkout anywhere
-- [ ] `Forge` interface + GitHub GraphQL implementation, token from `gh auth token`
-- [ ] Setup screen: `gh auth status` surfaced, API key → keychain + validation, skippable
-- [ ] Validation: unit tests against a temp git repo; setup screen in browser
+- [x] `git` plumbing wrapper (show / ls-tree / grep / diff / log / blame / fetch / merge-base) — no worktree/checkout anywhere (145 unit tests; live fetch of fixture PR verified)
+- [x] `Forge` interface + GitHub GraphQL implementation, token from `gh auth token` (63 unit tests; 18-step live check against fixture PR: pending comment, edit, viewed, reply, discard)
+- [~] Setup screen: `gh auth status` surfaced, API key → keychain + validation, skippable (server + RTL tests done; keychain live-verified; browser: gh row renders green — key/skip flows pending browser check)
+- [~] Validation: unit tests against a temp git repo ✔; setup screen in browser (partial)
 
 ## Stage 3 — Projects → PR list → diff view
-- [ ] Add project by local clone path (origin auto-detected) and by `owner/repo` (bare clone into app storage)
-- [ ] PR list: title, author, branch, updated-at, my review state
-- [ ] PR screen: background fetch of `pull/<n>/head`, metadata immediately
+- [~] Add project by local clone path (origin auto-detected) and by `owner/repo` (bare clone into app storage) — both verified via API; browser pending
+- [~] PR list: title, author, branch, updated-at, my review state — API verified (myReviewState 'commented' for fixture); browser pending
+- [~] PR screen: background fetch of `pull/<n>/head`, metadata immediately — fetch/diff/blob API verified; screen pending (agent E)
 - [ ] Continuous lazily-rendered diff (`@pierre/diffs`), stacked/split toggle
 - [ ] Changed-files tree (`@pierre/trees`) with change types, comment badges, viewed checkmarks; Overview entry
 - [ ] Validation: browser run against fixture PR
