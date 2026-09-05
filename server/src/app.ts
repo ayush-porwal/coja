@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Hono } from 'hono'
 import { packageVersion } from './paths.js'
+import { registerChatRoutes } from './routes/chat.js'
 import { registerGitRoutes } from './routes/git.js'
 import { onApiError } from './routes/http.js'
 import { registerProjectRoutes } from './routes/projects.js'
@@ -58,6 +59,12 @@ export function createApp(opts: AppOptions) {
     registerGitRoutes(app, ctx, { forge, fetcher })
     registerPullRoutes(app, ctx, { forge })
     registerReviewRoutes(app, ctx, { forge })
+    // The AI layer gets a read-only PR reader, never the Forge (design: the AI drafts, the human sends).
+    registerChatRoutes(app, ctx, {
+      secrets,
+      fetcher,
+      readPullRequest: (p, n) => forge.getPullRequest({ owner: p.owner, repo: p.repo }, n),
+    })
   }
 
   // Unknown API routes are JSON 404s, never the SPA shell.
