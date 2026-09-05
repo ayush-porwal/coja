@@ -13,22 +13,22 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and validated
 ## Stage 2 — Git layer + Forge + gh auth
 - [x] `git` plumbing wrapper (show / ls-tree / grep / diff / log / blame / fetch / merge-base) — no worktree/checkout anywhere (145 unit tests; live fetch of fixture PR verified)
 - [x] `Forge` interface + GitHub GraphQL implementation, token from `gh auth token` (63 unit tests; 18-step live check against fixture PR: pending comment, edit, viewed, reply, discard)
-- [~] Setup screen: `gh auth status` surfaced, API key → keychain + validation, skippable (server + RTL tests done; keychain live-verified; browser: gh row renders green — key/skip flows pending browser check)
-- [~] Validation: unit tests against a temp git repo ✔; setup screen in browser (partial)
+- [x] Setup screen: `gh auth status` surfaced, API key → keychain + validation, skippable (browser: gh green, bogus key → "That key was rejected by OpenAI.", Skip → Projects)
+- [x] Validation: unit tests against a temp git repo ✔; setup screen in browser ✔
 
 ## Stage 3 — Projects → PR list → diff view
-- [~] Add project by local clone path (origin auto-detected) and by `owner/repo` (bare clone into app storage) — both verified via API; browser pending
-- [~] PR list: title, author, branch, updated-at, my review state — API verified (myReviewState 'commented' for fixture); browser pending
-- [~] PR screen: background fetch of `pull/<n>/head`, metadata immediately — fetch/diff/blob API verified; screen pending (agent E)
-- [ ] Continuous lazily-rendered diff (`@pierre/diffs`), stacked/split toggle
-- [ ] Changed-files tree (`@pierre/trees`) with change types, comment badges, viewed checkmarks; Overview entry
+- [x] Add project by local clone path (origin auto-detected) and by `owner/repo` (bare clone into app storage) — both via API; local path also via the UI form (browser)
+- [x] PR list: title, author, branch, updated-at, my review state (browser: 'Commented' badge on #1)
+- [x] PR screen: background fetch of `pull/<n>/head`, metadata immediately (browser: Overview renders at once, pill Fetching→Ready)
+- [~] Continuous lazily-rendered diff (`@pierre/diffs`), stacked/split toggle — renders + highlights; BUG open: tree jump-scroll lands off-target (virtualizer height estimate), fix agent running
+- [x] Changed-files tree (`@pierre/trees`) with change types, comment badges, viewed checkmarks; Overview entry (browser)
 - [ ] Validation: browser run against fixture PR
 
 ## Stage 4 — Review sync
-- [ ] Line/range comment → pending review (verified pending on GitHub via `gh api`)
-- [ ] Reply to existing thread
-- [ ] Viewed checkmark round-trips via `markFileAsViewed`
-- [ ] Submit: Approve / Request changes / Comment → correct review event
+- [x] Line/range comment → pending review (browser on #1; `gh api`: review PENDING, comment PENDING)
+- [x] Reply to existing thread (browser: joins the open pending review with Pending badge; with no pending review it publishes immediately — both verified via `gh api`)
+- [x] Viewed checkmark round-trips via `markFileAsViewed` (browser checkbox → `viewerViewedState: VIEWED` via `gh api`)
+- [x] Submit: Comment (#1, publishes 2 pending comments) / Approve (#2) / Request changes (#2) — each verified via `gh api` (state, body, comments SUBMITTED). Note: GitHub forbids Approve/Request-changes on your own PR, hence the bot-authored PR #2 (workflow in the fixture repo).
 - [ ] Validation: browser + `gh api` verification against fixture PR, twice from clean state
 
 ## Stage 5 — AI panel
