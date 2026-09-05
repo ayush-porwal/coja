@@ -6,7 +6,7 @@ interface OverviewProps {
   detail: PullRequestDetail
 }
 
-const sectionTitle = 'mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500'
+const sectionTitle = 'mb-2 text-sm font-semibold text-ink'
 
 /** PR description, commit list and the top-level (non-diff) conversation. */
 export function Overview({ detail }: OverviewProps) {
@@ -14,27 +14,19 @@ export function Overview({ detail }: OverviewProps) {
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-6">
       <header className="mb-6">
-        <h1 className="font-semibold text-xl leading-snug text-zinc-900 dark:text-zinc-50">
-          {detail.title} <span className="font-normal text-zinc-400">#{detail.number}</span>
+        <h1 className="font-semibold text-xl leading-snug text-ink">
+          {detail.title} <span className="font-normal text-faint">#{detail.number}</span>
         </h1>
-        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
           {detail.isDraft && (
-            <span className="rounded-full border border-zinc-300 px-2 text-xs dark:border-zinc-600">
-              Draft
-            </span>
+            <span className="rounded-full border border-edge-strong px-2 text-xs">Draft</span>
           )}
           <Avatar actor={detail.author} size={18} />
-          <span className="font-medium text-zinc-800 dark:text-zinc-200">
-            {detail.author.login}
-          </span>
+          <span className="font-medium text-ink">{detail.author.login}</span>
           <span>wants to merge</span>
-          <code className="rounded bg-zinc-100 px-1 text-xs dark:bg-zinc-800">
-            {detail.headRefName}
-          </code>
+          <code className="rounded bg-active px-1 text-xs">{detail.headRefName}</code>
           <span>into</span>
-          <code className="rounded bg-zinc-100 px-1 text-xs dark:bg-zinc-800">
-            {detail.baseRefName}
-          </code>
+          <code className="rounded bg-active px-1 text-xs">{detail.baseRefName}</code>
           <span>·</span>
           <time dateTime={detail.createdAt} title={formatAbsolute(detail.createdAt)}>
             opened {formatRelative(detail.createdAt)}
@@ -42,8 +34,8 @@ export function Overview({ detail }: OverviewProps) {
           <span>·</span>
           <span>
             {detail.changedFiles} {detail.changedFiles === 1 ? 'file' : 'files'},{' '}
-            <span className="text-green-700 dark:text-green-400">+{detail.additions}</span>{' '}
-            <span className="text-red-700 dark:text-red-400">−{detail.deletions}</span>
+            <span className="text-ok">+{detail.additions}</span>{' '}
+            <span className="text-danger">−{detail.deletions}</span>
           </span>
         </p>
       </header>
@@ -54,12 +46,12 @@ export function Overview({ detail }: OverviewProps) {
         </h2>
         {detail.bodyHTML.trim() ? (
           <div
-            className="coja-markdown rounded-md border border-zinc-200 p-4 dark:border-zinc-700"
+            className="coja-markdown rounded-md border border-edge p-4"
             // biome-ignore lint/security/noDangerouslySetInnerHtml: bodyHTML is GitHub-sanitized markdown
             dangerouslySetInnerHTML={{ __html: detail.bodyHTML }}
           />
         ) : (
-          <p className="text-sm text-zinc-500 italic">No description provided.</p>
+          <p className="text-sm text-muted italic">No description provided.</p>
         )}
       </section>
 
@@ -68,9 +60,9 @@ export function Overview({ detail }: OverviewProps) {
           Commits <span className="font-normal">({detail.commits.length})</span>
         </h2>
         {detail.commits.length === 0 ? (
-          <p className="text-sm text-zinc-500 italic">No commits.</p>
+          <p className="text-sm text-muted italic">No commits.</p>
         ) : (
-          <ol className="divide-y divide-zinc-100 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-700">
+          <ol className="divide-y divide-edge rounded-md border border-edge">
             {detail.commits.map((commit) => (
               <li key={commit.oid}>
                 <CommitRow commit={commit} />
@@ -85,7 +77,7 @@ export function Overview({ detail }: OverviewProps) {
           Conversation <span className="font-normal">({conversation.length})</span>
         </h2>
         {conversation.length === 0 ? (
-          <p className="text-sm text-zinc-500 italic">No conversation yet.</p>
+          <p className="text-sm text-muted italic">No conversation yet.</p>
         ) : (
           <ol className="space-y-3">
             {conversation.map((item) => (
@@ -107,17 +99,14 @@ function CommitRow({ commit }: { commit: Commit }) {
         href={commit.url}
         target="_blank"
         rel="noreferrer"
-        className="shrink-0 font-mono text-blue-600 text-xs hover:underline dark:text-blue-400"
+        className="shrink-0 font-mono text-xs text-accent hover:underline"
       >
         {commit.abbreviatedOid}
       </a>
-      <span
-        className="min-w-0 flex-1 truncate text-zinc-800 dark:text-zinc-200"
-        title={commit.messageBody || undefined}
-      >
+      <span className="min-w-0 flex-1 truncate text-ink" title={commit.messageBody || undefined}>
         {commit.messageHeadline}
       </span>
-      <span className="shrink-0 text-xs text-zinc-500">
+      <span className="shrink-0 text-xs text-muted">
         {commit.authorLogin ?? commit.authorName} ·{' '}
         <time dateTime={commit.committedDate} title={formatAbsolute(commit.committedDate)}>
           {formatRelative(commit.committedDate)}
@@ -147,23 +136,23 @@ export function reviewStateLabel(state: ReviewState): string {
 function reviewStateClass(state: ReviewState): string {
   switch (state) {
     case 'APPROVED':
-      return 'border-green-300 bg-green-50 text-green-800 dark:border-green-700 dark:bg-green-950 dark:text-green-200'
+      return 'border-ok bg-ok-soft text-ok'
     case 'CHANGES_REQUESTED':
-      return 'border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-200'
+      return 'border-danger bg-danger-soft text-danger'
     case 'PENDING':
-      return 'border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200'
+      return 'border-caution bg-caution-soft text-caution'
     default:
-      return 'border-zinc-300 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300'
+      return 'border-edge-strong text-muted'
   }
 }
 
 function ConversationEntry({ item }: { item: ConversationItem }) {
   const when = item.kind === 'comment' ? item.createdAt : item.submittedAt
   return (
-    <article className="rounded-md border border-zinc-200 p-3 dark:border-zinc-700">
-      <header className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+    <article className="rounded-md border border-edge p-3">
+      <header className="flex flex-wrap items-center gap-2 text-xs text-muted">
         <Avatar actor={item.author} size={18} />
-        <span className="font-medium text-zinc-800 dark:text-zinc-200">{item.author.login}</span>
+        <span className="font-medium text-ink">{item.author.login}</span>
         {item.kind === 'review' ? (
           <span
             className={`rounded-full border px-1.5 py-px font-medium text-[11px] leading-4 ${reviewStateClass(item.state)}`}

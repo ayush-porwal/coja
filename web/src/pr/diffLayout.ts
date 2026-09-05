@@ -16,7 +16,6 @@
 import {
   type CodeViewLayout,
   DEFAULT_CODE_VIEW_FILE_METRICS,
-  type DiffsThemeNames,
   getFiletypeFromFileName,
   type PostRenderPhase,
   preloadHighlighter,
@@ -24,11 +23,9 @@ import {
   type VirtualFileMetrics,
 } from '@pierre/diffs'
 import type { CSSProperties } from 'react'
+import { COJA_DIFF_THEMES as DIFF_THEME } from '../themes/diffTheme'
 
-export const DIFF_THEME: Record<'dark' | 'light', DiffsThemeNames> = {
-  dark: 'pierre-dark',
-  light: 'pierre-light',
-}
+export { DIFF_THEME }
 
 /** Row height in px. The shadow stylesheet uses `line-height: var(--diffs-line-height, 20px)`. */
 export const DIFF_LINE_HEIGHT = 20
@@ -36,35 +33,45 @@ export const DIFF_LINE_HEIGHT = 20
 export const DIFF_HEADER_HEIGHT = 44
 /** Padding under a file's last row (the library default, `--diffs-gap-*`). */
 export const DIFF_SPACING = 8
+/** Diff/code font size in px. User preference; the base the row math derives from. */
+export const DIFF_FONT_SIZE = 12.5
+
+/**
+ * Diff metrics derived from the user's code font size. All row math scales
+ * with the font so virtualized rows never overlap when typography changes.
+ */
+export function diffMetricsForFontSize(fontSize: number): {
+  lineHeight: number
+  itemMetrics: VirtualFileMetrics
+  cssVariables: CSSProperties
+} {
+  const lineHeight = Math.round(fontSize * 1.6)
+  return {
+    lineHeight,
+    itemMetrics: {
+      ...DEFAULT_CODE_VIEW_FILE_METRICS,
+      lineHeight,
+      diffHeaderHeight: Math.round(lineHeight + 24),
+      spacing: DIFF_SPACING,
+    },
+    cssVariables: {
+      '--diffs-font-size': `${fontSize}px`,
+      '--diffs-line-height': `${lineHeight}px`,
+    } as CSSProperties,
+  }
+}
+
+/** Default metrics (the historical 12.5px diff font). */
+export const DEFAULT_DIFF_METRICS = diffMetricsForFontSize(DIFF_FONT_SIZE)
 
 /** Space around and between items in the CodeView scroller. */
 export const DIFF_LAYOUT: CodeViewLayout = { paddingTop: 12, paddingBottom: 12, gap: 12 }
 
-/**
- * CSS custom properties set on the CodeView root (they inherit through the
- * shadow boundary) so the rendered rows match `DIFF_LINE_HEIGHT` exactly.
- */
-export const DIFF_CSS_VARIABLES = {
-  '--diffs-line-height': `${DIFF_LINE_HEIGHT}px`,
-} as CSSProperties
-
-const BASE_ITEM_METRICS: VirtualFileMetrics = {
-  ...DEFAULT_CODE_VIEW_FILE_METRICS,
-  lineHeight: DIFF_LINE_HEIGHT,
-  diffHeaderHeight: DIFF_HEADER_HEIGHT,
-  spacing: DIFF_SPACING,
-}
-
-/**
- * `itemMetrics` for CodeView. Bumping `layoutEpoch` is how the screen "heals"
- * a broken virtual layout: CodeView performs a full relayout only when its
- * options change, and `setOptions` compares `itemMetrics` key by key. Odd
- * epochs add `paddingTop: 0`, which is exactly the library's default when a
- * file header is shown, so the layout result is identical while the compare
- * still reports a change and resets every item's cached height.
- */
+/** Metrics for the default 12.5px diff font, with the heal behavior applied. */
 export function diffItemMetrics(layoutEpoch: number): VirtualFileMetrics {
-  return layoutEpoch % 2 === 0 ? { ...BASE_ITEM_METRICS } : { ...BASE_ITEM_METRICS, paddingTop: 0 }
+  return layoutEpoch % 2 === 0
+    ? { ...DEFAULT_DIFF_METRICS.itemMetrics }
+    : { ...DEFAULT_DIFF_METRICS.itemMetrics, paddingTop: 0 }
 }
 
 /**

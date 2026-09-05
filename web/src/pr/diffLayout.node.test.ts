@@ -2,28 +2,27 @@
 import { DEFAULT_CODE_VIEW_FILE_METRICS } from '@pierre/diffs'
 import { describe, expect, it } from 'vitest'
 import {
-  DIFF_CSS_VARIABLES,
-  DIFF_HEADER_HEIGHT,
-  DIFF_LINE_HEIGHT,
+  DIFF_FONT_SIZE,
   DIFF_SPACING,
   diffItemMetrics,
+  diffMetricsForFontSize,
   isZeroHeightRender,
   languagesForPaths,
 } from './diffLayout'
 
 describe('diffItemMetrics', () => {
   it('pins the metrics the CSS depends on and keeps the CodeView render batch size', () => {
-    const metrics = diffItemMetrics(0)
-    expect(metrics.lineHeight).toBe(DIFF_LINE_HEIGHT)
-    expect(metrics.diffHeaderHeight).toBe(DIFF_HEADER_HEIGHT)
+    const metrics = diffMetricsForFontSize(DIFF_FONT_SIZE).itemMetrics
+    expect(metrics.lineHeight).toBe(Math.round(DIFF_FONT_SIZE * 1.6))
     expect(metrics.spacing).toBe(DIFF_SPACING)
     expect(metrics.hunkLineCount).toBe(DEFAULT_CODE_VIEW_FILE_METRICS.hunkLineCount)
   })
 
-  it('matches the CSS row height so estimates equal rendered rows', () => {
-    // The shadow stylesheet's header is `1lh + 3 * 8px`; both must agree with the metrics.
-    expect(DIFF_CSS_VARIABLES).toEqual({ '--diffs-line-height': `${DIFF_LINE_HEIGHT}px` })
-    expect(DIFF_HEADER_HEIGHT).toBe(DIFF_LINE_HEIGHT + 3 * DIFF_SPACING)
+  it('scales line height and header height with the code font size', () => {
+    const base = diffMetricsForFontSize(DIFF_FONT_SIZE).itemMetrics
+    const bigger = diffMetricsForFontSize(DIFF_FONT_SIZE + 4).itemMetrics
+    expect(bigger.lineHeight).toBeGreaterThan(base.lineHeight)
+    expect(bigger.diffHeaderHeight).toBeGreaterThan(base.diffHeaderHeight)
   })
 
   it('alternates a key CodeView compares, without changing the effective layout', () => {
@@ -50,7 +49,8 @@ describe('isZeroHeightRender', () => {
   })
 
   it('ignores healthy items and unmounts', () => {
-    expect(isZeroHeightRender('mount', DIFF_HEADER_HEIGHT)).toBe(false)
+    const { itemMetrics } = diffMetricsForFontSize(DIFF_FONT_SIZE)
+    expect(isZeroHeightRender('mount', itemMetrics.diffHeaderHeight)).toBe(false)
     expect(isZeroHeightRender('update', 1)).toBe(false)
     expect(isZeroHeightRender('unmount', 0)).toBe(false)
   })

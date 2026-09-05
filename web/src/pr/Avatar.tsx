@@ -16,7 +16,7 @@ export function Avatar({ actor, size = 20, className = '' }: AvatarProps) {
         width={size}
         height={size}
         loading="lazy"
-        className={`shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-800 ${className}`}
+        className={`shrink-0 rounded-full bg-active ${className}`}
       />
     )
   }
@@ -24,7 +24,7 @@ export function Avatar({ actor, size = 20, className = '' }: AvatarProps) {
     <span
       aria-hidden="true"
       style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.5)) }}
-      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-zinc-300 font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-active font-semibold text-ink ${className}`}
     >
       {actor.login.slice(0, 1).toUpperCase()}
     </span>

@@ -19,16 +19,17 @@ import {
   type SelectedLineRange,
 } from '@pierre/diffs'
 import { CodeView, type CodeViewHandle, type CodeViewReactOptions } from '@pierre/diffs/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { useTheme } from '../themes/ThemeContext'
+import { Spinner } from '../ui'
 import { bridge } from './bridge'
 import { CommentComposer } from './CommentComposer'
 import { CommentThread } from './CommentThread'
 import {
-  DIFF_CSS_VARIABLES,
   DIFF_LAYOUT,
   DIFF_THEME,
-  diffItemMetrics,
+  diffMetricsForFontSize,
   isZeroHeightRender,
   languagesForPaths,
   preloadDiffHighlighter,
@@ -38,6 +39,7 @@ import { blobUrl, type DiffEntry, useAddComment, useSetViewed } from './hooks'
 import {
   type AnnotationMeta,
   changeTypeLabel,
+  collapsedItemId,
   describeRange,
   fileItemId,
   normalizeRange,
@@ -48,8 +50,11 @@ import {
   toDiffSide,
 } from './mapping'
 import { SelectionPopover } from './SelectionPopover'
+import { SplitDivider } from './SplitDivider'
 import { createScrollRetrier, type ScrollRetrier, scheduleAfterLayout } from './scrollRetry'
-import type { DiffStyle, ScrollRequest } from './types'
+import { type DiffStyle, isSplitPct, isStringArray, type ScrollRequest } from './types'
+import { usePersistedState } from './usePersistedState'
+import { VirtualizerBoundary } from './VirtualizerBoundary'
 
 interface DiffViewProps {
   projectId: string
@@ -70,6 +75,17 @@ interface DiffViewProps {
 interface ComposerState {
   path: string
   range: SelectedLineRange
+}
+
+/** Toggles `path` in a collapsed-files set (pure; DiffView collapses whole files to their header). */
+export function toggleCollapsedPath(
+  collapsed: ReadonlySet<string>,
+  path: string,
+): ReadonlySet<string> {
+  const next = new Set(collapsed)
+  if (next.has(path)) next.delete(path)
+  else next.add(path)
+  return next
 }
 
 type Item = CodeViewItem<AnnotationMeta>
@@ -152,8 +168,85 @@ export function DiffView({
   const [composerError, setComposerError] = useState<string | null>(null)
   const [askBusy, setAskBusy] = useState(false)
   const [askError, setAskError] = useState<string | null>(null)
+  const { appearance, typography } = useTheme()
   const addComment = useAddComment(projectId, number)
   const setViewed = useSetViewed(projectId, number)
+  // Diff metrics scale with the user's code font size so rows stay aligned.
+  const diffMetrics = useMemo(
+    () => diffMetricsForFontSize(typography.codeSize),
+    [typography.codeSize],
+  )
+  const codeStyleVars = useMemo(
+    () => ({
+      '--coja-code-ligatures': typography.codeLigatures ? 'normal' : 'none',
+      '--coja-code-size': `${typography.codeSize}px`,
+    }),
+    [typography.codeLigatures, typography.codeSize],
+  )
+  // Split-diff column boundary, persisted; read live during drags through the
+  // `--coja-split-left` variable (SplitDivider + SPLIT_GRID_CSS in options).
+  const [splitLeftPct, setSplitLeftPct] = usePersistedState('coja.splitLeftPct', 50, isSplitPct)
+  const diffRootRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    diffRootRef.current?.style.setProperty('--coja-split-left', `${splitLeftPct}%`)
+  }, [splitLeftPct])
+  /**
+   * Files collapsed to just their header row (the chevron in the header
+   * toggles; marking Viewed collapses too). Persisted per PR — a reload or a
+   * visit to Overview keeps your collapsed set, exactly like the viewed state
+   * it mirrors. Stored as a string array; exposed as a Set.
+   */
+  const [collapsedStore, setCollapsedStore] = usePersistedState<string[]>(
+    `coja.collapsedFiles:${projectId}/${number}`,
+    [],
+    isStringArray,
+  )
+  const collapsed = useMemo(() => new Set(collapsedStore), [collapsedStore])
+  const setCollapsed = useCallback(
+    (update: (current: ReadonlySet<string>) => ReadonlySet<string>) => {
+      setCollapsedStore((current) => Array.from(update(new Set(current))))
+    },
+    [setCollapsedStore],
+  )
+  // Collapse/expand swaps items under the virtualizer, and its async renders
+  // (worker highlighting) can still hold a prepared layout for the old item.
+  // Swapping synchronously in an event — or even in a macrotask that lands
+  // before the library's next reconciliation frame — throws "rendered a
+  // different file than its prepared layout" and takes the screen down. So
+  // every collapsed-set update is deferred past two animation frames, strictly
+  // after the in-flight render cycle settles. (VirtualizerBoundary below is
+  // the safety net if a race ever slips through anyway.)
+  const collapseFrame = useRef<number | null>(null)
+  const pendingCollapse = useRef<((current: ReadonlySet<string>) => ReadonlySet<string>) | null>(
+    null,
+  )
+  const scheduleCollapsed = useCallback(
+    (update: (current: ReadonlySet<string>) => ReadonlySet<string>) => {
+      pendingCollapse.current = update
+      if (collapseFrame.current !== null) return
+      collapseFrame.current = requestAnimationFrame(() => {
+        collapseFrame.current = requestAnimationFrame(() => {
+          collapseFrame.current = null
+          const update2 = pendingCollapse.current
+          pendingCollapse.current = null
+          if (update2) setCollapsed(update2)
+        })
+      })
+    },
+    [setCollapsed],
+  )
+  useEffect(
+    () => () => {
+      if (collapseFrame.current !== null) cancelAnimationFrame(collapseFrame.current)
+    },
+    [],
+  )
+  const toggleCollapsed = useCallback(
+    (path: string) => {
+      scheduleCollapsed((current) => toggleCollapsedPath(current, path))
+    },
+    [scheduleCollapsed],
+  )
 
   // --- parse patches once per (path, patch) -------------------------------------------
   const parsedCache = useRef(
@@ -201,13 +294,41 @@ export function DiffView({
   )
 
   // --- CodeView items: stable identity per file, version bumped when annotations change ---
+  // A collapsed file is a `file` item with empty contents under a DISTINCT id
+  // (collapsedItemId): the library mounts a fresh virtualized file for it
+  // instead of re-preparing the expanded one in place, which is what raced its
+  // async renders. Cache entries are keyed by id, so each state keeps its own
+  // stable item object.
   const itemCache = useRef(new Map<string, CachedItem>())
   const items = useMemo(() => {
     const list: Item[] = []
     for (const file of detail.files) {
       const entry = diffs.get(file.path)
       if (entry === undefined || entry === 'loading') continue
-      const id = fileItemId(file.path)
+      const isCollapsed = collapsed.has(file.path)
+      const id = isCollapsed ? collapsedItemId(file.path) : fileItemId(file.path)
+      if (isCollapsed) {
+        const cached = itemCache.current.get(id)
+        if (cached) {
+          list.push(cached.item)
+        } else {
+          const item: Item = {
+            id,
+            type: 'file',
+            file: { name: file.path, contents: '' },
+            version: 1,
+          }
+          itemCache.current.set(id, {
+            fileDiff: undefined,
+            contents: '',
+            signature: '',
+            version: 1,
+            item,
+          })
+          list.push(item)
+        }
+        continue
+      }
       let fileDiff: FileDiffMetadata | undefined
       let contents = placeholderContents(entry)
       if (contents === undefined) {
@@ -222,7 +343,7 @@ export function DiffView({
           )
         : []
       const signature = annotationSignature(annotations)
-      const prev = itemCache.current.get(file.path)
+      const prev = itemCache.current.get(id)
       if (
         prev &&
         prev.fileDiff === fileDiff &&
@@ -236,11 +357,11 @@ export function DiffView({
       const item: Item = fileDiff
         ? { id, type: 'diff', fileDiff, annotations, version }
         : { id, type: 'file', file: { name: file.path, contents: contents ?? '' }, version }
-      itemCache.current.set(file.path, { fileDiff, contents, signature, version, item })
+      itemCache.current.set(id, { fileDiff, contents, signature, version, item })
       list.push(item)
     }
     return list
-  }, [detail.files, diffs, parsed, threadsByPath, composer])
+  }, [detail.files, diffs, parsed, threadsByPath, composer, collapsed])
   const itemIds = useMemo(() => new Set(items.map((i) => i.id)), [items])
 
   // --- highlighter preload ---------------------------------------------------------------
@@ -290,6 +411,36 @@ export function DiffView({
   const retrier = useRef<ScrollRetrier | null>(null)
   const jumpTarget = useRef<string | null>(null)
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+
+  // --- virtualizer crash recovery ---------------------------------------------------------
+  // The deferral in scheduleCollapsed makes collapse/expand races vanishingly
+  // unlikely, but a virtualizer throw must never take the screen down: this
+  // remounts the CodeView with the current items (which render cleanly) and
+  // restores the scroll position. Three crashes within 5s means something is
+  // genuinely broken — stop recovering and say so.
+  const [cvEpoch, setCVEpoch] = useState(0)
+  const [cvCrashLoop, setCVEpochCrashLoop] = useState(false)
+  const crashTimes = useRef<number[]>([])
+  const savedTop = useRef(0)
+  const handleVirtualizerCrash = useCallback(() => {
+    const now = Date.now()
+    crashTimes.current = [...crashTimes.current.filter((t) => now - t < 5000), now]
+    if (crashTimes.current.length >= 3) {
+      setCVEpochCrashLoop(true)
+      return
+    }
+    savedTop.current = scroller?.scrollTop ?? 0
+    setCVEpoch((epoch) => epoch + 1)
+  }, [scroller])
+  // After a recovery remount the scroller is a new element: put the reader back
+  // where they were.
+  useEffect(() => {
+    if (scroller && savedTop.current > 0) {
+      scroller.scrollTop = savedTop.current
+      savedTop.current = 0
+    }
+  }, [scroller])
+
   useEffect(() => {
     if (!scroller) return
     const cancel = () => retrier.current?.cancel()
@@ -305,6 +456,18 @@ export function DiffView({
   const handledNonce = useRef(0)
   useEffect(() => {
     if (!scrollRequest || scrollRequest.nonce === handledNonce.current) return
+    // A jump into a collapsed file (tree click, citation) expands it first; the
+    // nonce stays unhandled so the effect re-runs after the items rebuild.
+    // A jump into a collapsed file (tree click, citation) expands it first; the
+    // nonce stays unhandled so the effect re-runs after the items rebuild.
+    if (collapsed.has(scrollRequest.path)) {
+      scheduleCollapsed((current) => {
+        const next = new Set(current)
+        next.delete(scrollRequest.path)
+        return next
+      })
+      return
+    }
     const id = fileItemId(scrollRequest.path)
     // Not renderable yet (diff still loading, or the CodeView not mounted): this effect
     // re-runs when items or readiness change and jumps as soon as the file exists.
@@ -337,7 +500,7 @@ export function DiffView({
       () => setSelection((current) => (current === highlight ? null : current)),
       HIGHLIGHT_MS,
     )
-  }, [scrollRequest, itemIds, highlighterReady])
+  }, [scrollRequest, itemIds, highlighterReady, collapsed, scheduleCollapsed])
 
   // A relayout moves every item after the healed one; re-aim the jump once it has landed.
   useEffect(() => {
@@ -361,8 +524,27 @@ export function DiffView({
   }
   const options = useMemo<CodeViewReactOptions<AnnotationMeta, undefined>>(
     () => ({
+      // Both slots are coja's CSS-variable themes (themes/diffTheme.ts); the
+      // token colours come from the active palette via --diffs-* on :root, and
+      // `themeType` pins the shadow colour scheme to the applied appearance.
       theme: DIFF_THEME,
-      themeType: 'system',
+      themeType: appearance,
+      // Static overrides: the split grid reads its boundary from the
+      // `--coja-split-left` variable that SplitDivider drags on the diff root;
+      // the code font/size/line-height/ligatures come from typography prefs.
+      // Both read variables set on the diff root, so preference changes and
+      // drags never trigger item re-renders.
+      unsafeCSS: `
+        [data-diff-type="split"][data-overflow="scroll"] {
+          grid-template-columns: var(--coja-split-left, 50%) calc(100% - var(--coja-split-left, 50%));
+        }
+        :host, :host * {
+          font-family: var(--coja-code-font, ui-monospace, monospace);
+        }
+        [data-diffs-header] {
+          font-family: var(--coja-ui-font, system-ui, sans-serif);
+        }
+      `,
       diffStyle,
       diffIndicators: 'classic',
       stickyHeaders: true,
@@ -370,7 +552,7 @@ export function DiffView({
       enableGutterUtility: true,
       lineHoverHighlight: 'both',
       layout: DIFF_LAYOUT,
-      itemMetrics: diffItemMetrics(layoutEpoch),
+      itemMetrics: diffMetricsForFontSize(typography.codeSize).itemMetrics,
       onGutterUtilityClick: (range: SelectedLineRange, context: { item: Item }) =>
         gutterClick.current(range, context.item.id),
       onPostRender: (
@@ -380,7 +562,7 @@ export function DiffView({
         context: PostRenderContext,
       ) => postRender.current(phase, context),
     }),
-    [diffStyle, layoutEpoch],
+    [diffStyle, appearance, typography.codeSize],
   )
 
   // --- selection popover actions ---------------------------------------------------------
@@ -471,7 +653,21 @@ export function DiffView({
       <FileHeaderMeta
         file={file}
         previousPath={gitByPath.get(path)?.previousPath}
-        onToggleViewed={(viewed) => setViewed.mutate({ path, viewed })}
+        collapsed={collapsed.has(path)}
+        onToggleCollapsed={() => toggleCollapsed(path)}
+        onToggleViewed={(viewed) => {
+          setViewed.mutate({ path, viewed })
+          // Marking a file viewed also collapses it — the user is done with it,
+          // so the remaining files get the vertical space (GitHub does the
+          // same); un-viewing expands it again. Deferred like every other
+          // collapsed-set update (see scheduleCollapsed).
+          scheduleCollapsed((current) => {
+            const nextSet = new Set(current)
+            if (viewed) nextSet.add(path)
+            else nextSet.delete(path)
+            return nextSet
+          })
+        }}
       />
     )
   }
@@ -481,7 +677,7 @@ export function DiffView({
   const fetchFailed = fetchError !== null || fetchStatus?.state === 'error'
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div ref={diffRootRef} className="relative flex h-full min-h-0 flex-col">
       {ready && total > 0 && loaded < total && (
         <ProgressLine loaded={loaded} failed={failed} total={total} />
       )}
@@ -499,19 +695,44 @@ export function DiffView({
         />
       )}
       <div className="relative min-h-0 flex-1">
-        {items.length > 0 && highlighterReady ? (
-          <CodeView<AnnotationMeta, undefined>
-            ref={codeViewRef}
-            containerRef={setScroller}
-            items={items}
-            options={options}
-            className="coja-diff absolute inset-0 overflow-auto"
-            style={DIFF_CSS_VARIABLES}
-            selectedLines={selection}
-            onSelectedLinesChange={setSelection}
-            renderAnnotation={renderAnnotation}
-            renderHeaderMetadata={renderHeaderMetadata}
-          />
+        {cvCrashLoop ? (
+          <div
+            className="flex h-full items-center justify-center p-6 text-center text-sm"
+            role="alert"
+          >
+            <div className="max-w-md rounded-md border border-danger bg-danger-soft p-4 text-danger">
+              <p className="font-medium">The diff view hit a rendering error</p>
+              <p className="mt-1 text-xs">
+                It did not recover on its own. Reload the page — your review state is safe on
+                GitHub.
+              </p>
+            </div>
+          </div>
+        ) : items.length > 0 && highlighterReady ? (
+          <VirtualizerBoundary
+            key={cvEpoch}
+            epoch={cvEpoch}
+            onRecover={handleVirtualizerCrash}
+            fallback={
+              <div className="flex h-full items-center justify-center" role="status">
+                <Spinner size="md" label="Recovering the diff view…" />
+              </div>
+            }
+          >
+            <CodeView<AnnotationMeta, undefined>
+              key={cvEpoch}
+              ref={codeViewRef}
+              containerRef={setScroller}
+              items={items}
+              options={options}
+              className="coja-diff absolute inset-0 overflow-auto"
+              style={{ ...codeStyleVars, ...diffMetrics.cssVariables }}
+              selectedLines={selection}
+              onSelectedLinesChange={setSelection}
+              renderAnnotation={renderAnnotation}
+              renderHeaderMetadata={renderHeaderMetadata}
+            />
+          </VirtualizerBoundary>
         ) : (
           <CenterMessage
             fetchFailed={fetchFailed}
@@ -522,6 +743,9 @@ export function DiffView({
             onRetryFetch={onRetryFetch}
           />
         )}
+        {diffStyle === 'split' && (
+          <SplitDivider leftPct={splitLeftPct} onChange={setSplitLeftPct} />
+        )}
       </div>
     </div>
   )
@@ -530,17 +754,46 @@ export function DiffView({
 interface FileHeaderMetaProps {
   file: ChangedFile
   previousPath: string | undefined
+  collapsed: boolean
+  onToggleCollapsed(): void
   onToggleViewed(viewed: boolean): void
 }
 
-function FileHeaderMeta({ file, previousPath, onToggleViewed }: FileHeaderMetaProps) {
+function FileHeaderMeta({
+  file,
+  previousPath,
+  collapsed,
+  onToggleCollapsed,
+  onToggleViewed,
+}: FileHeaderMetaProps) {
   const isViewed = file.viewedState === 'VIEWED'
   const dismissed = file.viewedState === 'DISMISSED'
   const renamed = (file.changeType === 'RENAMED' || file.changeType === 'COPIED') && previousPath
   return (
     <span className="flex items-center gap-3 text-xs">
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? `Expand ${file.path}` : `Collapse ${file.path}`}
+        title={collapsed ? 'Expand file' : 'Collapse file'}
+        onClick={onToggleCollapsed}
+        className="flex cursor-pointer items-center rounded p-0.5 text-muted hover:bg-hover hover:text-ink"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`size-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
       {/* +/− counts are already in the built-in header; add only what it lacks. */}
-      <span className="text-zinc-500">
+      <span className="text-muted">
         {renamed ? (
           <span title={`${previousPath} → ${file.path}`}>
             {changeTypeLabel(file.changeType)} from{' '}
@@ -551,19 +804,17 @@ function FileHeaderMeta({ file, previousPath, onToggleViewed }: FileHeaderMetaPr
         )}
       </span>
       <label
-        className="flex cursor-pointer select-none items-center gap-1 text-zinc-700 dark:text-zinc-200"
+        className="flex cursor-pointer select-none items-center gap-1 text-ink"
         title={dismissed ? 'Changed since you viewed it' : 'Mark as viewed on GitHub'}
       >
         <input
           type="checkbox"
           checked={isViewed}
           onChange={(e) => onToggleViewed(e.target.checked)}
-          className="accent-blue-600"
+          className="accent-accent"
         />
         Viewed
-        {dismissed && (
-          <span className="text-amber-600 dark:text-amber-400"> · changed since viewed</span>
-        )}
+        {dismissed && <span className="text-caution"> · changed since viewed</span>}
       </label>
     </span>
   )
@@ -581,7 +832,7 @@ function ProgressLine({
   const pct = total ? Math.round((loaded / total) * 100) : 0
   return (
     <div
-      className="shrink-0 border-zinc-200 border-b px-3 py-1 text-xs text-zinc-500 dark:border-zinc-800"
+      className="shrink-0 border-edge border-b px-3 py-1 text-xs text-muted"
       role="status"
       aria-live="polite"
     >
@@ -592,8 +843,8 @@ function ProgressLine({
         </span>
         <span>{pct}%</span>
       </div>
-      <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-zinc-200 dark:bg-zinc-800">
-        <div className="h-full bg-blue-500 transition-[width]" style={{ width: `${pct}%` }} />
+      <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-active">
+        <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
@@ -620,13 +871,13 @@ function CenterMessage({
   let content: React.ReactNode
   if (fetchFailed) {
     content = (
-      <div className="max-w-md rounded-md border border-red-300 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+      <div className="max-w-md rounded-md border border-danger bg-danger-soft p-4 text-danger">
         <p className="font-medium">Could not fetch the PR objects</p>
         <p className="mt-1 break-words text-xs">{fetchMessage ?? 'Unknown error'}</p>
         <button
           type="button"
           onClick={onRetryFetch}
-          className="mt-3 rounded bg-red-600 px-3 py-1 font-medium text-white text-xs hover:bg-red-700"
+          className="mt-3 rounded bg-danger px-3 py-1 font-medium text-xs text-white hover:opacity-90"
         >
           Retry fetch
         </button>
@@ -636,7 +887,7 @@ function CenterMessage({
     content = (
       <p className="flex items-center gap-2">
         <span
-          className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500"
+          className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent"
           aria-hidden="true"
         />
         Preparing diff…
@@ -646,7 +897,7 @@ function CenterMessage({
     content = (
       <p className="flex items-center gap-2">
         <span
-          className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500"
+          className="inline-block h-2 w-2 animate-pulse rounded-full bg-caution"
           aria-hidden="true"
         />
         Fetching PR objects… the diff renders as they arrive.
@@ -658,10 +909,7 @@ function CenterMessage({
     content = <p>Loading diffs…</p>
   }
   return (
-    <div
-      className="flex h-full items-center justify-center p-6 text-sm text-zinc-500"
-      role="status"
-    >
+    <div className="flex h-full items-center justify-center p-6 text-sm text-muted" role="status">
       {content}
     </div>
   )

@@ -32,9 +32,9 @@ export function CommentComposer({
   }
 
   return (
-    <div className="my-1 rounded-md border border-blue-300 bg-white p-2 text-sm shadow-sm dark:border-blue-800 dark:bg-zinc-900">
-      <div className="mb-1 flex items-center gap-2 text-xs text-zinc-500">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">New review comment</span>
+    <div className="my-1 rounded-md border border-accent bg-card p-2 text-sm shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-xs text-muted">
+        <span className="font-medium text-muted">New review comment</span>
         <span className="truncate font-mono">{describeRange(path, range)}</span>
       </div>
       <textarea
@@ -53,10 +53,10 @@ export function CommentComposer({
         rows={3}
         disabled={pending}
         placeholder="Leave a comment — it joins your pending review, invisible to others until you submit"
-        className="w-full resize-y rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+        className="w-full resize-y rounded border-edge-strong bg-card px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
       />
       {error && (
-        <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-1 text-xs text-danger">
           {error}
         </p>
       )}
@@ -65,7 +65,7 @@ export function CommentComposer({
           type="button"
           onClick={onCancel}
           disabled={pending}
-          className="rounded px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="rounded px-2.5 py-1 text-xs text-muted hover:bg-hover disabled:opacity-50"
         >
           Cancel
         </button>
@@ -73,7 +73,7 @@ export function CommentComposer({
           type="button"
           onClick={submit}
           disabled={!canSubmit}
-          className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
         >
           {pending ? 'Adding…' : 'Add review comment'}
         </button>

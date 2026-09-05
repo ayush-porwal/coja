@@ -16,7 +16,7 @@ interface ReviewDialogProps {
 }
 
 const actionClass =
-  'rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500'
+  'rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus'
 
 /** The Review ▾ submit dialog: summary + Approve / Request changes / Comment. */
 export function ReviewDialog({
@@ -90,13 +90,13 @@ export function ReviewDialog({
         }
       }}
       aria-labelledby="review-dialog-title"
-      className="m-auto w-[540px] max-w-[92vw] rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      className="m-auto w-[540px] max-w-[92vw] rounded-lg border border-edge bg-card p-0 text-ink shadow-xl backdrop:bg-black/40"
     >
       <form method="dialog" onSubmit={(e) => e.preventDefault()} className="p-5">
         <h2 id="review-dialog-title" className="font-semibold text-base">
           Submit review
         </h2>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-muted">
           {pendingCount === 0
             ? 'No pending comments. Your summary is published as the review body.'
             : `${pendingCount} pending ${pendingCount === 1 ? 'comment' : 'comments'} will become visible on GitHub with this review.`}
@@ -109,13 +109,13 @@ export function ReviewDialog({
             rows={5}
             disabled={busy}
             placeholder="Leave a summary (optional for approvals)"
-            className="w-full resize-y rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+            className="w-full resize-y rounded border-edge-strong bg-card px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
           />
         </label>
         {error && (
           <p
             role="alert"
-            className="mt-2 rounded border border-red-300 bg-red-50 px-2 py-1 text-red-700 text-xs dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+            className="mt-2 rounded border border-danger bg-danger-soft px-2 py-1 text-xs text-danger"
           >
             {error}
           </p>
@@ -125,7 +125,7 @@ export function ReviewDialog({
             type="button"
             onClick={() => void handleSubmit('APPROVE')}
             disabled={busy}
-            className={`${actionClass} bg-green-600 text-white hover:bg-green-700`}
+            className={`${actionClass} bg-ok text-white hover:opacity-90`}
           >
             Approve
           </button>
@@ -133,7 +133,7 @@ export function ReviewDialog({
             type="button"
             onClick={() => void handleSubmit('REQUEST_CHANGES')}
             disabled={busy}
-            className={`${actionClass} bg-red-600 text-white hover:bg-red-700`}
+            className={`${actionClass} bg-danger text-white hover:opacity-90`}
           >
             Request changes
           </button>
@@ -141,7 +141,7 @@ export function ReviewDialog({
             type="button"
             onClick={() => void handleSubmit('COMMENT')}
             disabled={busy}
-            className={`${actionClass} border border-zinc-300 text-zinc-800 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-800`}
+            className={`${actionClass} border border-edge-strong text-ink hover:bg-hover border-edge-strong text-ink hover:bg-hover`}
           >
             Comment
           </button>
@@ -149,18 +149,18 @@ export function ReviewDialog({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className={`${actionClass} ml-auto text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800`}
+            className={`${actionClass} ml-auto text-muted hover:bg-hover text-muted hover:bg-hover`}
           >
             Cancel
           </button>
         </div>
         {hasPendingReview && (
-          <div className="mt-4 border-zinc-200 border-t pt-3 text-xs dark:border-zinc-700">
+          <div className="mt-4 border-edge border-t pt-3 text-xs">
             <button
               type="button"
               onClick={() => void handleDiscard()}
               disabled={busy}
-              className="text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+              className="text-danger hover:underline disabled:opacity-50"
             >
               Discard pending review
             </button>

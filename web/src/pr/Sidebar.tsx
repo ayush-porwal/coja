@@ -2,6 +2,7 @@ import type { ChangedFile, ReviewThread } from '@coja/shared/api'
 import type { FileTreeRowDecoration, GitStatusEntry } from '@pierre/trees'
 import { FileTree, useFileTree } from '@pierre/trees/react'
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react'
+import { useTheme } from '../themes/ThemeContext'
 import { changeTypeToGitStatus } from './mapping'
 import { fileRowPathFromComposedPath, isPlainPrimaryPress } from './treeRow'
 import type { CenterSelection } from './types'
@@ -44,6 +45,7 @@ export function Sidebar({
   onSelectOverview,
   onSelectFile,
 }: SidebarProps) {
+  const { treeStyles } = useTheme()
   const counts = useMemo(() => threadCountsByPath(threads), [threads])
   const viewed = useMemo(
     () => new Set(files.filter((f) => f.viewedState === 'VIEWED').map((f) => f.path)),
@@ -60,6 +62,16 @@ export function Sidebar({
     initialExpansion: 'open',
     flattenEmptyDirectories: true,
     density: 'compact',
+    // The tree's own scrollbar thumb is transparent until the tree is hovered —
+    // so even on systems that paint overlay thumbs persistently, a tall file
+    // tree gives no clue of its depth. Force the thumb to the app's thin
+    // quarter-strength ink at all times (the scroller already carries
+    // `scrollbar-width: thin` and a stable gutter).
+    unsafeCSS: `
+      [data-file-tree-virtualized-scroll="true"] {
+        --trees-scrollbar-thumb-current: color-mix(in srgb, var(--coja-ink, #888) 35%, transparent);
+      }
+    `,
     onSelectionChange: (paths) => {
       const path = paths[0]
       // Directory rows also fire selection changes; only files open a diff.
@@ -75,7 +87,7 @@ export function Sidebar({
       if (!n && !seen) return null
       const parts: { text: string; color?: string }[] = []
       if (n) parts.push({ text: `${n}` })
-      if (seen) parts.push({ text: n ? ' ✓' : '✓', color: '#16a34a' })
+      if (seen) parts.push({ text: n ? ' ✓' : '✓', color: 'var(--coja-ok, #16a34a)' })
       const title = [n ? `${n} ${n === 1 ? 'thread' : 'threads'}` : '', seen ? 'viewed' : '']
         .filter(Boolean)
         .join(' · ')
@@ -137,21 +149,19 @@ export function Sidebar({
         type="button"
         onClick={onSelectOverview}
         aria-current={isOverview ? 'page' : undefined}
-        className={`flex items-center justify-between gap-2 border-zinc-200 border-b px-3 py-2 text-left font-medium text-sm dark:border-zinc-800 ${
-          isOverview
-            ? 'bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-200'
-            : 'text-zinc-800 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-900'
+        className={`flex items-center justify-between gap-2 border-edge border-b px-3 py-2 text-left font-medium text-sm border-edge ${
+          isOverview ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover'
         }`}
       >
         <span>Overview</span>
         <span
-          className="rounded-full bg-zinc-200 px-1.5 text-[11px] text-zinc-700 leading-4 dark:bg-zinc-700 dark:text-zinc-200"
+          className="rounded-full bg-active px-1.5 text-[11px] leading-4 text-muted"
           title="Conversation items"
         >
           {conversationCount}
         </span>
       </button>
-      <div className="flex items-center justify-between px-3 py-1.5 font-semibold text-[11px] text-zinc-500 uppercase tracking-wide">
+      <div className="flex items-center justify-between px-3 py-1.5 font-medium text-[11px] text-muted">
         <span>Files ({files.length})</span>
         <span title="Viewed files">
           {viewed.size}/{files.length} viewed
@@ -161,6 +171,7 @@ export function Sidebar({
         model={model}
         aria-label="Changed files"
         className="block min-h-0 flex-1 text-[12.5px]"
+        style={treeStyles}
         onPointerDown={openFileFromPress}
       />
     </div>

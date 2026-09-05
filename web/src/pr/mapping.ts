@@ -20,13 +20,24 @@ import type { GitStatus } from '@pierre/trees'
 export type AnnotationMeta = { kind: 'thread'; threadId: string } | { kind: 'composer' }
 
 const FILE_ITEM_PREFIX = 'file:'
+const COLLAPSED_ITEM_SUFFIX = ':collapsed'
 
 /** CodeView item id for a changed file. */
 export const fileItemId = (path: string): string => `${FILE_ITEM_PREFIX}${path}`
 
-/** Inverse of `fileItemId`. */
+/**
+ * CodeView item id for a collapsed (header-only) file. A distinct id — not the
+ * expanded id with swapped contents — matters: `@pierre/diffs` races its async
+ * renders when an item's file changes in place ("rendered a different file
+ * than its prepared layout"), while a new id simply mounts a fresh instance.
+ */
+export const collapsedItemId = (path: string): string =>
+  `${fileItemId(path)}${COLLAPSED_ITEM_SUFFIX}`
+
+/** Inverse of `fileItemId` and `collapsedItemId`. */
 export function pathFromItemId(id: string): string {
-  return id.startsWith(FILE_ITEM_PREFIX) ? id.slice(FILE_ITEM_PREFIX.length) : id
+  const base = id.startsWith(FILE_ITEM_PREFIX) ? id.slice(FILE_ITEM_PREFIX.length) : id
+  return base.endsWith(COLLAPSED_ITEM_SUFFIX) ? base.slice(0, -COLLAPSED_ITEM_SUFFIX.length) : base
 }
 
 export function toDiffSide(side: SelectionSide | AnnotationSide | undefined): DiffSide {

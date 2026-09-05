@@ -25,16 +25,17 @@ export function SelectionPopover({
     <div
       role="toolbar"
       aria-label="Selection actions"
-      className="absolute top-3 left-1/2 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      className="absolute top-3 left-1/2 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-edge bg-card px-3 py-1.5 text-sm shadow-lg"
     >
-      <span className="truncate font-mono text-xs text-zinc-600 dark:text-zinc-300" title={label}>
+      {/* The only shrinking element: a long path truncates so the buttons never do. */}
+      <span className="min-w-0 truncate font-mono text-xs text-muted" title={label}>
         {label}
       </span>
       <button
         type="button"
         onClick={onComment}
         disabled={busy}
-        className="rounded bg-blue-600 px-2.5 py-1 font-medium text-white text-xs hover:bg-blue-700 disabled:opacity-50"
+        className="shrink-0 whitespace-nowrap rounded bg-accent px-2.5 py-1 font-medium text-xs text-accent-ink hover:opacity-90 disabled:opacity-50"
       >
         Comment
       </button>
@@ -42,7 +43,7 @@ export function SelectionPopover({
         type="button"
         onClick={onAskAi}
         disabled={busy}
-        className="rounded border border-zinc-300 px-2.5 py-1 font-medium text-xs text-zinc-800 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-800"
+        className="shrink-0 whitespace-nowrap rounded border border-edge-strong px-2.5 py-1 font-medium text-xs text-ink hover:bg-hover disabled:opacity-50"
       >
         {busy ? 'Attaching…' : 'Ask AI'}
       </button>
@@ -50,12 +51,12 @@ export function SelectionPopover({
         type="button"
         onClick={onDismiss}
         aria-label="Clear selection"
-        className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        className="shrink-0 rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-ink"
       >
         ×
       </button>
       {error && (
-        <span role="alert" className="text-red-600 text-xs dark:text-red-400">
+        <span role="alert" className="shrink-0 whitespace-nowrap text-xs text-danger">
           {error}
         </span>
       )}

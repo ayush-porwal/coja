@@ -12,10 +12,10 @@ interface CommentThreadProps {
 }
 
 const badgeClass =
-  'rounded-full border px-1.5 py-px text-[11px] font-medium leading-4 border-zinc-300 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300'
+  'rounded-full border px-1.5 py-px text-[11px] font-medium leading-4 border-edge-strong text-muted'
 
 const textareaClass =
-  'w-full resize-y rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100'
+  'w-full resize-y rounded border-edge-strong bg-card px-2 py-1.5 text-sm text-ink outline-none focus:border-accent'
 
 /**
  * A GitHub review thread rendered inline under its diff line (light DOM, so
@@ -46,17 +46,11 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
   return (
     <section
       aria-label={`Review thread on ${thread.path}`}
-      className="my-1 rounded-md border border-zinc-200 bg-white text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+      className="my-1 rounded-md border border-edge bg-card text-sm shadow-sm"
     >
       {showHeader && (
-        <header className="flex flex-wrap items-center gap-2 border-zinc-200 border-b px-3 py-1.5 text-xs text-zinc-500 dark:border-zinc-700">
-          {thread.isResolved && (
-            <span
-              className={`${badgeClass} border-green-300 text-green-700 dark:border-green-700 dark:text-green-300`}
-            >
-              Resolved
-            </span>
-          )}
+        <header className="flex flex-wrap items-center gap-2 border-edge border-b px-3 py-1.5 text-xs text-muted">
+          {thread.isResolved && <span className={`${badgeClass} border-ok text-ok`}>Resolved</span>}
           {thread.isOutdated && <span className={badgeClass}>Outdated</span>}
           {fileLevel && thread.originalLine !== null && (
             <span>
@@ -66,7 +60,7 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
           )}
         </header>
       )}
-      <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+      <ul className="divide-y divide-edge">
         {thread.comments.map((comment) => (
           <li key={comment.id}>
             <CommentItem comment={comment} projectId={projectId} number={number} />
@@ -74,7 +68,7 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
         ))}
       </ul>
       <form
-        className="border-zinc-200 border-t p-2 dark:border-zinc-700"
+        className="border-edge border-t p-2"
         onSubmit={(e) => {
           e.preventDefault()
           void submitReply()
@@ -95,7 +89,7 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
           className={textareaClass}
         />
         {replyError && (
-          <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+          <p role="alert" className="mt-1 text-xs text-danger">
             {replyError}
           </p>
         )}
@@ -103,7 +97,7 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
           <button
             type="submit"
             disabled={!replyBody.trim() || reply.isPending}
-            className="rounded bg-zinc-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
+            className="rounded bg-ink px-2.5 py-1 text-xs font-medium text-canvas hover:opacity-90 disabled:opacity-50"
           >
             {reply.isPending ? 'Replying…' : 'Reply'}
           </button>
@@ -150,16 +144,14 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
 
   return (
     <article className="px-3 py-2">
-      <header className="flex items-center gap-2 text-xs text-zinc-500">
+      <header className="flex items-center gap-2 text-xs text-muted">
         <Avatar actor={comment.author} size={18} />
-        <span className="font-medium text-zinc-800 dark:text-zinc-100">{comment.author.login}</span>
+        <span className="font-medium text-ink">{comment.author.login}</span>
         <time dateTime={comment.createdAt} title={formatAbsolute(comment.createdAt)}>
           {formatRelative(comment.createdAt)}
         </time>
         {comment.isPending && (
-          <span
-            className={`${badgeClass} border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200`}
-          >
+          <span className={`${badgeClass} border-caution bg-caution-soft text-caution`}>
             Pending
           </span>
         )}
@@ -200,7 +192,7 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
               type="button"
               onClick={() => setEditing(false)}
               disabled={update.isPending}
-              className="rounded px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="rounded px-2.5 py-1 text-xs text-muted hover:bg-hover disabled:opacity-50"
             >
               Cancel
             </button>
@@ -208,7 +200,7 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
               type="button"
               onClick={() => void save()}
               disabled={!draft.trim() || update.isPending}
-              className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink hover:opacity-90 disabled:opacity-50"
             >
               {update.isPending ? 'Saving…' : 'Save'}
             </button>
@@ -222,7 +214,7 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
         />
       )}
       {error && (
-        <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-1 text-xs text-danger">
           {error}
         </p>
       )}
