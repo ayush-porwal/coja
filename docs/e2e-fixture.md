@@ -11,6 +11,8 @@ Private scratch repo used for all review-flow validation.
 - Also present (not seeded by us): a "Codex Review" bot installed on the account posted a COMMENTED review with three inline threads (`src/auth/session.test.ts:3`, `src/index.ts:3`, `src/auth/session.ts:11`) at 2026-09-04T21:35Z. Real data; useful for rendering tests.
 - Local source of the fixture (scratch, may be gone): the branches live on GitHub; a fresh clone is enough.
 
+- PR #2 "Bot PR: isBlank helper (review-submit validation)" — authored by `github-actions[bot]` via `.github/workflows/make-pr.yml` (`gh workflow run make-fixture-pr -R ayush-porwal/coja-e2e-fixture` opens a fresh one; the repo has "Allow GitHub Actions to create and approve pull requests" enabled). Used for Approve / Request changes, which GitHub forbids on one's own PR.
+
 ## Resetting between runs
 
 ```bash
