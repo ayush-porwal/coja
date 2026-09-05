@@ -11,7 +11,7 @@ export interface ContextDialogProps {
 }
 
 /**
- * "What does the AI see?" (design.md §4): the standing system prompt, verbatim,
+ * "What gets sent" (design.md §4): the standing system prompt, verbatim,
  * and the tools the model can call. Fetched only while the dialog is open.
  */
 export function ContextDialog({ open, onClose, projectId, number }: ContextDialogProps) {
@@ -39,33 +39,33 @@ export function ContextDialog({ open, onClose, projectId, number }: ContextDialo
         onClose()
       }}
       aria-labelledby="ai-context-title"
-      className="m-auto w-[min(48rem,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-0 text-sm text-zinc-900 shadow-xl backdrop:bg-black/40 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+      className="m-auto w-[min(48rem,calc(100vw-2rem))] rounded-lg border border-edge bg-card p-0 text-sm text-ink shadow-xl backdrop:bg-black/40"
     >
       {open && (
         <div className="flex max-h-[85vh] flex-col">
-          <header className="flex items-center gap-2 border-zinc-200 border-b px-4 py-3 dark:border-zinc-800">
+          <header className="flex items-center gap-2 border-edge border-b px-4 py-3">
             <h2 id="ai-context-title" className="font-semibold">
-              What does the AI see?
+              What gets sent
             </h2>
             <Button size="sm" variant="ghost" className="ml-auto" onClick={onClose}>
               Close
             </Button>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-muted">
               Every turn the model receives this system prompt, the conversation above (including
               each context chip exactly as shown), and the results of the tool calls it makes — all
               of which are rendered in the chat.
             </p>
             {context.isPending && (
-              <div className="mt-4 flex items-center gap-2 text-zinc-500">
+              <div className="mt-4 flex items-center gap-2 text-muted">
                 <Spinner size="sm" /> Loading…
               </div>
             )}
             {context.isError && (
               <ErrorNotice
                 className="mt-4"
-                title="Could not load the AI context"
+                title="Could not load the context"
                 message={errorMessage(context.error)}
                 onRetry={() => void context.refetch()}
                 retrying={context.isFetching}
@@ -76,7 +76,7 @@ export function ContextDialog({ open, onClose, projectId, number }: ContextDialo
                 <h3 className="mt-4 mb-1 font-medium">System prompt</h3>
                 <pre
                   data-testid="system-prompt"
-                  className="max-h-[45vh] overflow-auto whitespace-pre-wrap break-words rounded border border-zinc-200 bg-zinc-50 p-3 font-mono text-[11px] leading-snug dark:border-zinc-700 dark:bg-zinc-900"
+                  className="max-h-[45vh] overflow-auto whitespace-pre-wrap break-words rounded border border-edge bg-canvas p-3 font-mono text-[11px] leading-snug"
                 >
                   {context.data.system}
                 </pre>
@@ -85,10 +85,7 @@ export function ContextDialog({ open, onClose, projectId, number }: ContextDialo
                   {context.data.tools.map((tool) => (
                     <li key={tool.name} className="text-xs">
                       <code className="font-mono font-medium">{tool.name}</code>
-                      <span className="text-zinc-600 dark:text-zinc-400">
-                        {' '}
-                        — {tool.description}
-                      </span>
+                      <span className="text-muted"> — {tool.description}</span>
                     </li>
                   ))}
                 </ul>

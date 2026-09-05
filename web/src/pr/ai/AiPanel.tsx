@@ -2,13 +2,13 @@ import type { ChatWithMessages, PullRequestDetail } from '@coja/shared/api'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { Button, ErrorNotice, Spinner } from '../../ui'
+import { ErrorNotice, Spinner } from '../../ui'
 import { errorMessage } from '../errors'
 import { usePersistedState } from '../usePersistedState'
 import { Composer, type ComposerHandle } from './Composer'
 import { ContextDialog } from './ContextDialog'
 import { type ChatControls, Conversation } from './Conversation'
-import { HistoryMenu } from './HistoryMenu'
+import { chatTitle, HistoryMenu } from './HistoryMenu'
 import {
   aiKeys,
   chatStorageKey,
@@ -23,7 +23,7 @@ import {
   useDeleteChat,
 } from './hooks'
 import { Suggestions } from './MessageList'
-import { ModelPicker } from './ModelPicker'
+import { EffortPicker, ModelPicker } from './ModelPicker'
 import type { ChatMessage } from './types'
 
 /**
@@ -35,17 +35,19 @@ export interface AiPanelProps {
   projectId: string
   number: number
   detail: PullRequestDetail
+  /** Notified when the composer's attached-chip count changes (collapsed-panel badge). */
+  onChipsChange?: (count: number) => void
 }
 
-export const NO_PROVIDER_MESSAGE = 'No AI provider configured — add an API key in Setup'
+export const NO_PROVIDER_MESSAGE = 'No model provider configured — add one in Setup'
 
 /**
- * The AI panel (design.md §4): header with model picker, chat history, "New
- * chat" and "What does the AI see?"; the conversation; the composer with its
+ * The chat sidepanel (design.md §4): header with model picker, reasoning
+ * effort, chat history and new chat; the conversation; the composer with its
  * context chips. One persisted chat per PR is current at a time, remembered in
  * localStorage so a reload resumes it.
  */
-export function AiPanel({ projectId, number, detail }: AiPanelProps) {
+export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelProps) {
   const queryClient = useQueryClient()
 
   // --- Model -------------------------------------------------------------
@@ -63,6 +65,25 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
     [modelList],
   )
   const noProvider = models.isSuccess && modelList.length === 0
+
+  // --- Reasoning effort (ChatGPT subscription catalog) --------------------
+  const currentModel = modelList.find((m) => m.id === model)
+  const effortOptions = currentModel?.reasoningEfforts ?? []
+  const [effort, setEffort] = useState<string | null>(null)
+  const effortRef = useRef<string | null>(null)
+  // A model switch resets the effort to that model's catalog default.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the picked model id changes
+  useEffect(() => {
+    setEffort(currentModel?.defaultReasoningEffort ?? null)
+  }, [model])
+  useEffect(() => {
+    effortRef.current = effort
+  }, [effort])
+  // When a subscription model is active and a key-billing model exists, the chat
+  // error notice can offer an explicit one-click switch to it (never automatic).
+  const apiFallbackModel = model.startsWith('chatgpt:')
+    ? (modelList.find((m) => m.provider !== 'chatgpt')?.id ?? null)
+    : null
 
   // --- Current chat ------------------------------------------------------
   const chats = useChats(projectId, number)
@@ -87,20 +108,27 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
   const liveControls = controls && controls.chatId === chatId ? controls : null
   const streaming = liveControls?.status === 'submitted' || liveControls?.status === 'streaming'
 
-  // A message sent before its chat existed (or finished loading) waits here.
-  const [pendingParts, setPendingParts] = useState<ChatMessage['parts'] | null>(null)
+  // A message sent before its chat was ready waits here — tied to the chat it
+  // was sent to, so switching conversations discards it instead of delivering
+  // it to the wrong one.
+  const [pending, setPending] = useState<{ chatId: string; parts: ChatMessage['parts'] } | null>(
+    null,
+  )
   useEffect(() => {
-    if (pendingParts && liveControls) {
-      liveControls.send(pendingParts)
-      setPendingParts(null)
+    if (pending && liveControls && pending.chatId === chatId) {
+      liveControls.send(pending.parts)
+      setPending(null)
     }
-  }, [pendingParts, liveControls])
+  }, [pending, liveControls, chatId])
   useEffect(() => {
-    if (pendingParts && chatId !== null && record.isError) {
-      setPendingParts(null)
+    if (pending && chatId !== null && chatId !== pending.chatId) setPending(null)
+  }, [pending, chatId])
+  useEffect(() => {
+    if (pending && chatId !== null && record.isError) {
+      setPending(null)
       setActionError(`Could not load the chat: ${errorMessage(record.error)}`)
     }
-  }, [pendingParts, chatId, record.isError, record.error])
+  }, [pending, chatId, record.isError, record.error])
 
   const composer = useRef<ComposerHandle>(null)
 
@@ -112,13 +140,13 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
     }
     if (chatId !== null) {
       // The chat exists but its Conversation has not mounted yet: send once it has.
-      setPendingParts(parts)
+      setPending({ chatId, parts })
       return
     }
     if (model === '') throw new Error(NO_PROVIDER_MESSAGE)
     const chat = await createChat.mutateAsync({ model })
     setStoredChatId(chat.id)
-    setPendingParts(parts)
+    setPending({ chatId: chat.id, parts })
   }
 
   const handleNewChat = async () => {
@@ -163,20 +191,30 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
       'Any risks or missing tests?',
     ]
   }, [detail.files])
-  const onSuggest = useCallback((text: string) => composer.current?.insert(text), [])
+  /** A suggestion pill sends straight away — one click, one message. */
+  const sendSuggestion = useCallback(
+    (text: string) => {
+      if (model === '' || noProvider) return
+      void handleSend([{ type: 'text', text }])
+    },
+    // handleSend closes over liveControls/chatId/model; model is the guard that matters
+    // biome-ignore lint/correctness/useExhaustiveDependencies: rebind when the model or chat changes
+    [model, noProvider, chatId, liveControls, createChat],
+  )
   const [contextOpen, setContextOpen] = useState(false)
+  const currentChat = chats.data?.find((c) => c.id === chatId)
+  const currentTitle = currentChat ? chatTitle(currentChat) : 'New conversation'
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white text-sm dark:bg-zinc-950">
-      <header className="flex h-10 shrink-0 items-center gap-1.5 border-zinc-200 border-b px-2 dark:border-zinc-800">
-        <h2 className="px-1 font-semibold text-zinc-900 dark:text-zinc-50">AI</h2>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-          <ModelPicker
-            models={modelList}
-            value={model}
-            onChange={setStoredModel}
-            disabled={models.isPending}
-          />
+    <div className="flex h-full min-h-0 flex-col bg-panel text-sm">
+      <header className="flex h-10 shrink-0 items-center gap-1 border-edge border-b px-2">
+        <h2
+          className="min-w-0 flex-1 truncate px-1 text-xs font-medium text-muted"
+          title={currentTitle}
+        >
+          {currentTitle}
+        </h2>
+        <div className="flex min-w-0 shrink-0 items-center gap-0.5">
           <HistoryMenu
             chats={chats.data}
             loading={chats.isPending}
@@ -184,34 +222,34 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
             onSelect={setStoredChatId}
             onDelete={(id) => void handleDelete(id)}
           />
-          <Button
-            size="sm"
-            variant="ghost"
+          <button
+            type="button"
             onClick={() => void handleNewChat()}
             disabled={noProvider || model === '' || createChat.isPending}
-            title="Start a new chat for this pull request"
+            title="New chat"
+            aria-label="New chat"
+            className="flex size-7 shrink-0 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink disabled:opacity-40"
           >
-            New chat
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            iconOnly
-            aria-label="What does the AI see?"
-            title="What does the AI see?"
+            <NewChatIcon />
+          </button>
+          <button
+            type="button"
             onClick={() => setContextOpen(true)}
+            title="Context & tools"
+            aria-label="Context and tools"
+            className="flex size-7 shrink-0 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
           >
             <EyeIcon />
-          </Button>
+          </button>
         </div>
       </header>
 
       {noProvider && (
         <div
           role="status"
-          className="border-amber-200 border-b bg-amber-50 px-3 py-2 text-amber-900 text-xs dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          className="border-caution border-b bg-caution-soft px-3 py-2 text-xs text-caution"
         >
-          No AI provider configured — add an API key in{' '}
+          No model provider configured — add one in{' '}
           <Link to="/setup" className="font-medium underline">
             Setup
           </Link>
@@ -230,18 +268,15 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
       {actionError && (
         <div className="m-2">
           <ErrorNotice title="Chat action failed" message={actionError} />
-          <Button size="sm" variant="ghost" className="mt-1" onClick={() => setActionError(null)}>
-            Dismiss
-          </Button>
         </div>
       )}
 
       {chatId === null ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3">
           {chats.isPending ? (
-            <Spinner size="sm" label="Loading chats…" className="text-zinc-400" />
+            <Spinner size="sm" label="Loading chats…" className="text-faint" />
           ) : (
-            <Suggestions suggestions={suggestions} onSuggest={onSuggest} />
+            <Suggestions suggestions={suggestions} onSuggest={sendSuggestion} />
           )}
         </div>
       ) : record.data ? (
@@ -252,11 +287,14 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
           record={record.data}
           paths={paths}
           modelRef={modelRef}
+          reasoningEffortRef={effortRef}
           onControls={setControls}
           onTurnFinished={handleTurnFinished}
           suggestions={suggestions}
-          onSuggest={onSuggest}
+          onSuggest={sendSuggestion}
           modelLabel={modelLabel}
+          apiFallbackModel={apiFallbackModel}
+          onSwitchModel={setStoredModel}
         />
       ) : record.isError ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -268,30 +306,41 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
           />
           {/* Creates and selects a fresh chat: merely forgetting the id would fall back to the
               most recent chat, i.e. re-select the one that just failed. */}
-          <Button
-            size="sm"
-            variant="secondary"
-            className="mt-2"
+          <button
+            type="button"
             onClick={() => void handleNewChat()}
             disabled={noProvider || model === '' || createChat.isPending}
+            className="mt-2 rounded-md border border-edge px-2.5 py-1.5 text-xs font-medium hover:bg-hover disabled:opacity-50"
           >
             Start a new conversation
-          </Button>
+          </button>
         </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-zinc-500">
+        <div className="flex flex-1 items-center justify-center text-muted">
           <Spinner size="sm" label="Loading chat…" />
         </div>
       )}
 
       <Composer
         ref={composer}
+        above={
+          <div className="flex items-center gap-1.5 pb-2">
+            <ModelPicker
+              models={modelList}
+              value={model}
+              onChange={setStoredModel}
+              disabled={models.isPending}
+            />
+            <EffortPicker efforts={effortOptions} value={effort} onChange={setEffort} />
+          </div>
+        }
         onSend={handleSend}
         onStop={() => liveControls?.stop()}
         streaming={streaming}
         disabled={noProvider || models.isError || model === ''}
         disabledReason={noProvider ? NO_PROVIDER_MESSAGE : 'Loading models…'}
-        busy={createChat.isPending || pendingParts !== null}
+        busy={createChat.isPending || pending !== null}
+        onChipsChange={onChipsChange}
       />
 
       <ContextDialog
@@ -301,6 +350,14 @@ export function AiPanel({ projectId, number, detail }: AiPanelProps) {
         number={number}
       />
     </div>
+  )
+}
+
+function NewChatIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-4">
+      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   )
 }
 

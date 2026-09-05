@@ -9,12 +9,18 @@ import { makeDetail } from '../testFixtures'
 import { AiPanel } from './AiPanel'
 
 const models: ModelInfo[] = [
-  { id: 'openai:gpt-5-mini', provider: 'openai', modelId: 'gpt-5-mini', label: 'GPT-5 mini' },
   {
-    id: 'anthropic:claude-sonnet-4-5',
-    provider: 'anthropic',
-    modelId: 'claude-sonnet-4-5',
-    label: 'Claude Sonnet 4.5',
+    id: 'chatgpt:gpt-5.5',
+    provider: 'chatgpt',
+    modelId: 'gpt-5.5',
+    label: 'GPT-5.5',
+  },
+  {
+    id: 'custom-deepseek:deepseek-chat',
+    provider: 'custom-deepseek',
+    modelId: 'deepseek-chat',
+    label: 'DeepSeek deepseek-chat',
+    providerLabel: 'DeepSeek',
   },
 ]
 
@@ -23,7 +29,7 @@ const chat1: Chat = {
   projectId: 'p1',
   prNumber: 1,
   title: 'Explain the TTL change',
-  model: 'openai:gpt-5-mini',
+  model: 'chatgpt:gpt-5.5',
   createdAt: '2026-09-05T00:00:00Z',
   updatedAt: '2026-09-05T01:00:00Z',
 }
@@ -36,7 +42,7 @@ const record1: ChatWithMessages = {
     {
       id: 'm2',
       role: 'assistant',
-      metadata: { model: 'openai:gpt-5-mini' },
+      metadata: { model: 'chatgpt:gpt-5.5' },
       parts: [
         { type: 'step-start' },
         { type: 'text', text: 'The TTL moved to **src/auth/session.ts:12**.' },
@@ -75,7 +81,14 @@ function renderPanel(queryDefaults: Parameters<typeof createQueryClient>[0] = { 
   )
 }
 
-const modelSelect = () => screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
+/** The model pill (custom combobox). */
+const modelTrigger = () => screen.getByRole('combobox', { name: 'Model' })
+/** Opens the picker and clicks the option with this label. */
+async function pickModel(label: string) {
+  fireEvent.click(modelTrigger())
+  const listbox = await screen.findByRole('listbox', { name: 'Model' })
+  fireEvent.click(within(listbox).getByRole('option', { name: label }))
+}
 const textarea = () => screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
 
 beforeEach(() => {
@@ -86,39 +99,41 @@ describe('AiPanel — model picker', () => {
   it('lists models grouped by provider, defaults to the first and persists the choice', async () => {
     installMockApi(routes())
     renderPanel()
-    await waitFor(() => expect(modelSelect().value).toBe('openai:gpt-5-mini'))
-    const groups = Array.from(modelSelect().querySelectorAll('optgroup')).map((g) => g.label)
-    expect(groups).toEqual(['OpenAI', 'Anthropic'])
-    expect(screen.getByRole('option', { name: 'Claude Sonnet 4.5' })).toBeDefined()
+    await waitFor(() => expect(modelTrigger().textContent).toContain('GPT-5.5'))
+    fireEvent.click(modelTrigger())
+    const listbox = await screen.findByRole('listbox', { name: 'Model' })
+    const groups = within(listbox)
+      .getAllByRole('group')
+      .map((g) => g.getAttribute('aria-label'))
+    expect(groups).toEqual(['ChatGPT (subscription)', 'DeepSeek'])
+    expect(within(listbox).getByRole('option', { name: 'DeepSeek deepseek-chat' })).toBeDefined()
+    fireEvent.click(within(listbox).getByRole('option', { name: 'DeepSeek deepseek-chat' }))
 
-    fireEvent.change(modelSelect(), { target: { value: 'anthropic:claude-sonnet-4-5' } })
-    expect(modelSelect().value).toBe('anthropic:claude-sonnet-4-5')
+    await waitFor(() => expect(modelTrigger().textContent).toContain('DeepSeek deepseek-chat'))
     await waitFor(() =>
       expect(localStorage.getItem('coja.aiModel')).toBe(
-        JSON.stringify('anthropic:claude-sonnet-4-5'),
+        JSON.stringify('custom-deepseek:deepseek-chat'),
       ),
     )
   })
 
   it('falls back to the first model when the stored one is gone', async () => {
-    localStorage.setItem('coja.aiModel', JSON.stringify('openai:retired-model'))
+    localStorage.setItem('coja.aiModel', JSON.stringify('custom-deepseek:retired-model'))
     installMockApi(routes())
     renderPanel()
-    await waitFor(() => expect(modelSelect().value).toBe('openai:gpt-5-mini'))
+    await waitFor(() => expect(modelTrigger().textContent).toContain('GPT-5.5'))
   })
 
   it('shows the no-provider notice and disables the composer when no model is configured', async () => {
     installMockApi(routes({ 'GET /api/ai/models': [] }))
     renderPanel()
-    const notice = await screen.findByText(/No AI provider configured/)
+    const notice = await screen.findByText(/No model provider configured/)
     expect(notice.getAttribute('role')).toBe('status')
     expect(within(notice).getByRole('link', { name: 'Setup' }).getAttribute('href')).toBe('/setup')
     expect(textarea().disabled).toBe(true)
-    expect(textarea().placeholder).toContain('No AI provider configured')
-    expect(screen.getByRole('button', { name: 'Send' })).toHaveProperty('disabled', true)
+    expect(textarea().placeholder).toContain('No model provider configured')
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'New chat' })).toHaveProperty('disabled', true)
-    // The rest of the panel still renders (the review tool keeps working without AI).
-    expect(screen.getByRole('heading', { name: 'AI' })).toBeDefined()
   })
 })
 
@@ -135,7 +150,7 @@ describe('AiPanel — conversations', () => {
     // Citations in persisted assistant text navigate; the model shows under the message.
     expect(screen.getByRole('button', { name: 'src/auth/session.ts:12' })).toBeDefined()
     expect(
-      within(screen.getByRole('article', { name: 'Assistant' })).getByText('GPT-5 mini'),
+      within(screen.getByRole('article', { name: 'Assistant' })).getByText('GPT-5.5'),
     ).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
@@ -171,15 +186,17 @@ describe('AiPanel — conversations', () => {
         [`GET ${BASE}/chats`]: [chat1],
         [`GET ${BASE}/chats/c1`]: record1,
         [`POST ${BASE}/chats`]: created,
+        // The record refetches on switch (staleTime 0 → server truth on mount).
+        [`GET ${BASE}/chats/c3`]: { chat: created, messages: [] },
       }),
     )
     renderPanel()
     expect(await screen.findByText('Explain the TTL change')).toBeDefined()
-    await waitFor(() => expect(modelSelect().value).toBe('openai:gpt-5-mini'))
+    await waitFor(() => expect(modelTrigger().textContent).toContain('GPT-5.5'))
 
     fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
     await waitFor(() => expect(mock.callsTo('POST', `${BASE}/chats`)).toHaveLength(1))
-    expect(mock.callsTo('POST', `${BASE}/chats`)[0]?.body).toEqual({ model: 'openai:gpt-5-mini' })
+    expect(mock.callsTo('POST', `${BASE}/chats`)[0]?.body).toEqual({ model: 'chatgpt:gpt-5.5' })
     // Switched: the old conversation is gone, the empty state shows, the id is remembered.
     await waitFor(() => expect(screen.queryByText('Explain the TTL change')).toBeNull())
     expect(screen.getByRole('list', { name: 'Suggestions' })).toBeDefined()
@@ -195,28 +212,30 @@ describe('AiPanel — conversations', () => {
       }),
     )
     renderPanel()
-    await waitFor(() => expect(modelSelect().value).toBe('openai:gpt-5-mini'))
+    await waitFor(() => expect(modelTrigger().textContent).toContain('GPT-5.5'))
     expect(screen.getByRole('list', { name: 'Suggestions' })).toBeDefined()
 
-    // Suggestions fill the composer without sending.
+    // A suggestion pill sends directly: chat created, message posted, no composer round-trip.
     fireEvent.click(screen.getByRole('button', { name: 'Walk me through src/auth/session.ts' }))
-    expect(textarea().value).toBe('Walk me through src/auth/session.ts')
-    fireEvent.change(textarea(), { target: { value: 'hello' } })
-    fireEvent.keyDown(textarea(), { key: 'Enter' })
+    expect(textarea().value).toBe('')
 
     await waitFor(() => expect(mock.callsTo('POST', `${BASE}/chats/c9/messages`)).toHaveLength(1))
     const body = mock.callsTo('POST', `${BASE}/chats/c9/messages`)[0]?.body as {
       model: string
       messages: { role: string; parts: unknown[] }[]
     }
-    expect(body.model).toBe('openai:gpt-5-mini')
+    expect(body.model).toBe('chatgpt:gpt-5.5')
     expect(body.messages).toHaveLength(1)
     expect(body.messages[0]?.role).toBe('user')
-    expect(body.messages[0]?.parts).toEqual([{ type: 'text', text: 'hello' }])
+    expect(body.messages[0]?.parts).toEqual([
+      { type: 'text', text: 'Walk me through src/auth/session.ts' },
+    ])
     expect(Object.keys(body).sort()).toEqual(['messages', 'model'])
 
     // The user message is in the list; the failed request shows the server's message with Retry.
-    expect(screen.getByRole('article', { name: 'You' }).textContent).toContain('hello')
+    expect(screen.getByRole('article', { name: 'You' }).textContent).toContain(
+      'Walk me through src/auth/session.ts',
+    )
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('provider exploded')
     expect(within(alert).getByRole('button', { name: 'Retry' })).toBeDefined()
@@ -236,13 +255,13 @@ describe('AiPanel — conversations', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Could not load this chat')
     expect(alert.textContent).toContain('database is locked')
-    await waitFor(() => expect(modelSelect().value).toBe('openai:gpt-5-mini'))
+    await waitFor(() => expect(modelTrigger().textContent).toContain('GPT-5.5'))
     const attempts = mock.callsTo('GET', `${BASE}/chats/c1`).length
     expect(attempts).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'Start a new conversation' }))
     await waitFor(() => expect(mock.callsTo('POST', `${BASE}/chats`)).toHaveLength(1))
-    expect(mock.callsTo('POST', `${BASE}/chats`)[0]?.body).toEqual({ model: 'openai:gpt-5-mini' })
+    expect(mock.callsTo('POST', `${BASE}/chats`)[0]?.body).toEqual({ model: 'chatgpt:gpt-5.5' })
     // The new, empty chat is current; the failure is gone; the broken chat is not fetched again.
     expect(await screen.findByRole('list', { name: 'Suggestions' })).toBeDefined()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -280,10 +299,10 @@ describe('AiPanel — what does the AI see?', () => {
   it('opens a dialog with the verbatim system prompt and the tool list', async () => {
     const mock = installMockApi(routes())
     renderPanel()
-    await waitFor(() => expect(modelSelect().value).toBe('openai:gpt-5-mini'))
+    await waitFor(() => expect(modelTrigger().textContent).toContain('GPT-5.5'))
     expect(mock.callsTo('GET', `${BASE}/ai-context`)).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole('button', { name: 'What does the AI see?' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Context and tools' }))
     expect(await screen.findByTestId('system-prompt')).toHaveProperty('textContent', context.system)
     const tools = screen.getByRole('list', { name: 'Tools' })
     expect(

@@ -22,16 +22,16 @@ export function ContextChipView({ chip, onRemove }: ContextChipViewProps) {
   const [expanded, setExpanded] = useState(false)
   const label = chipLabel(chip)
   return (
-    <div className="rounded border border-zinc-200 bg-zinc-50 text-xs dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="flex items-center gap-1 px-1.5 py-1">
+    <div className="max-w-full rounded-lg bg-active text-xs">
+      <div className="flex items-center gap-1 px-2 py-1">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-center gap-1 text-left font-mono text-zinc-700 hover:underline dark:text-zinc-200"
+          className="flex min-w-0 flex-1 items-center gap-1 text-left font-mono text-ink hover:underline"
           title={expanded ? 'Hide excerpt' : 'Show the exact text sent to the model'}
         >
-          <span aria-hidden="true" className="w-3 shrink-0 text-zinc-400">
+          <span aria-hidden="true" className="w-3 shrink-0 text-faint">
             {expanded ? '▾' : '▸'}
           </span>
           <span className="truncate">{label}</span>
@@ -41,7 +41,7 @@ export function ContextChipView({ chip, onRemove }: ContextChipViewProps) {
             type="button"
             onClick={onRemove}
             aria-label={`Remove ${label}`}
-            className="shrink-0 rounded px-1 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+            className="shrink-0 rounded px-1 text-muted hover:bg-hover hover:text-ink"
           >
             ×
           </button>
@@ -50,7 +50,7 @@ export function ContextChipView({ chip, onRemove }: ContextChipViewProps) {
       {expanded && (
         <pre
           data-testid="chip-excerpt"
-          className="max-h-64 overflow-auto border-zinc-200 border-t px-2 py-1.5 font-mono text-[11px] text-zinc-800 leading-snug dark:border-zinc-700 dark:text-zinc-200"
+          className="max-h-64 overflow-auto rounded-b-lg border-edge border-t bg-canvas px-2 py-1.5 font-mono text-[11px] text-ink leading-snug"
         >
           {chip.text}
         </pre>

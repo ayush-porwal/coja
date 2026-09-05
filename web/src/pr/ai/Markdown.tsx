@@ -19,10 +19,9 @@ function urlTransform(url: string): string {
 }
 
 const citeClass =
-  'inline rounded-sm px-0.5 font-mono text-[0.9em] text-blue-700 underline decoration-dotted hover:bg-blue-50 hover:decoration-solid dark:text-blue-300 dark:hover:bg-blue-950'
+  'inline cursor-pointer rounded-sm px-0.5 font-mono text-[0.9em] text-accent underline decoration-dotted hover:bg-accent-soft hover:decoration-solid'
 
-const imageClass =
-  'rounded-sm bg-zinc-100 px-1 font-mono text-[0.85em] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+const imageClass = 'rounded-sm bg-active px-1 font-mono text-[0.85em] text-muted'
 
 const components: Components = {
   a: ({ href, children, node: _node, ...rest }) => {
@@ -44,7 +43,7 @@ const components: Components = {
     // urlTransform blanks everything but http(s); show those as plain text.
     if (!href) return <span {...rest}>{children}</span>
     return (
-      <a href={href} target="_blank" rel="noreferrer noopener" {...rest}>
+      <a href={href} target="_blank" rel="noreferrer noopener" className="cursor-pointer" {...rest}>
         {children}
       </a>
     )

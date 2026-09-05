@@ -63,22 +63,34 @@ function Part({ part, index, role, paths }: PartProps) {
     case 'reasoning':
       if (part.text === '' && part.state !== 'streaming') return null
       return (
-        <details className="my-1 rounded border border-zinc-200 border-dashed text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-          <summary className="cursor-pointer select-none px-2 py-1">
+        <details className="group my-1 overflow-hidden rounded-lg bg-active text-xs text-muted">
+          <summary className="flex cursor-pointer select-none list-none items-center gap-1.5 px-2.5 py-1.5 transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              className="size-3.5 shrink-0 transition-transform group-open:rotate-180"
+            >
+              <path
+                d="M9 9a3 3 0 1 1 4.4 2.65c-.9.52-1.4 1.1-1.4 2.1v.25"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+              <circle cx="12" cy="18" r="0.6" fill="currentColor" />
+            </svg>
             Reasoning{part.state === 'streaming' ? '…' : ''}
           </summary>
-          <div className="whitespace-pre-wrap break-words border-zinc-200 border-t border-dashed px-2 py-1.5 dark:border-zinc-700">
+          <div className="whitespace-pre-wrap break-words border-edge border-t border-dashed bg-canvas px-2.5 py-2">
             {part.text}
           </div>
         </details>
       )
     case 'step-start':
       // Every model step begins with one; a divider before the very first part is noise.
-      return index === 0 ? null : (
-        <hr className="my-2 border-zinc-200 border-t dark:border-zinc-800" />
-      )
+      return index === 0 ? null : <hr className="my-2 border-edge border-t" />
     case 'file':
-      return <p className="text-xs text-zinc-500">Attachment: {part.filename ?? part.mediaType}</p>
+      return <p className="text-xs text-muted">Attachment: {part.filename ?? part.mediaType}</p>
     case 'source-url': {
       // Same policy as links in markdown: only http(s) becomes a link, anything else is text.
       const href = safeHttpUrl(part.url)
@@ -129,44 +141,46 @@ export function ToolCallCard({ part }: ToolCallCardProps) {
   const failed = part.state === 'output-error'
 
   return (
-    <section
-      aria-label={`Tool call ${summary}`}
-      className="my-1.5 rounded border border-zinc-200 bg-zinc-50 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-    >
-      <div className="flex items-center gap-2 px-2 py-1">
-        <code
-          className="min-w-0 flex-1 truncate font-mono text-zinc-800 dark:text-zinc-200"
-          title={summary}
-        >
-          {summary}
-        </code>
-        {running && <Spinner size="sm" label="Running" className="text-zinc-500" />}
-        {done && (
-          <span
-            role="img"
-            aria-label="Completed"
-            className="text-emerald-600 dark:text-emerald-400"
+    <section aria-label={`Tool call ${summary}`} className="my-1.5 text-xs">
+      {/* Failed calls open by default so the error is seen without a click.
+          One enveloping surface: the summary is the pill row, the payload
+          opens directly beneath it inside the same rounded container. */}
+      <details className="group overflow-hidden rounded-lg bg-active" open={failed || undefined}>
+        <summary className="flex cursor-pointer select-none list-none items-center gap-2 px-2.5 py-1.5 transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden">
+          <ToolIcon />
+          <code className="min-w-0 flex-1 truncate font-mono text-ink" title={summary}>
+            {summary}
+          </code>
+          {running && <Spinner size="sm" label="Running" className="text-muted" />}
+          {done && (
+            <span role="img" aria-label="Completed" className="shrink-0 text-ok">
+              ✓
+            </span>
+          )}
+          {failed && (
+            <span role="img" aria-label="Failed" className="shrink-0 text-danger">
+              ✗
+            </span>
+          )}
+          {!running && !done && !failed && <span className="shrink-0 text-muted">{part.state}</span>}
+          <span className="shrink-0 text-faint">{done ? 'Result' : 'Input'}</span>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="size-3 shrink-0 text-faint transition-transform group-open:rotate-180"
           >
-            ✓
-          </span>
-        )}
-        {failed && (
-          <span role="img" aria-label="Failed" className="text-red-600 dark:text-red-400">
-            ✗
-          </span>
-        )}
-        {!running && !done && !failed && <span className="text-zinc-500">{part.state}</span>}
-      </div>
-      {failed && (
-        <p className="break-words border-zinc-200 border-t px-2 py-1 text-red-700 dark:border-zinc-700 dark:text-red-300">
-          {part.errorText}
-        </p>
-      )}
-      <details className="border-zinc-200 border-t dark:border-zinc-700">
-        <summary className="cursor-pointer select-none px-2 py-1 text-zinc-600 dark:text-zinc-400">
-          {done ? 'Result' : 'Input'}
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </summary>
-        <div className="max-h-80 overflow-auto px-2 py-1.5">
+        <div className="max-h-80 overflow-auto border-edge border-t bg-canvas px-2.5 py-2">
+          {failed && <p className="mb-1.5 break-words text-danger">{part.errorText}</p>}
           {done ? (
             <ToolOutput output={part.output} />
           ) : (
@@ -175,6 +189,20 @@ export function ToolCallCard({ part }: ToolCallCardProps) {
         </div>
       </details>
     </section>
+  )
+}
+
+function ToolIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-3.5 shrink-0 text-muted">
+      <path
+        d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
@@ -187,7 +215,7 @@ const LONG_TEXT = 100
  */
 function ToolOutput({ output }: { output: unknown }) {
   if (output === undefined || output === null) {
-    return <p className="text-zinc-500">(no output)</p>
+    return <p className="text-muted">(no output)</p>
   }
   if (typeof output === 'string') return <Pre text={output} />
   if (!isRecord(output)) return <JsonBlock value={output} empty="(empty)" />
@@ -206,7 +234,7 @@ function ToolOutput({ output }: { output: unknown }) {
       {Object.keys(rest).length > 0 && <JsonBlock value={rest} empty="{}" />}
       {long.map(([key, value]) => (
         <div key={key}>
-          <div className="mb-0.5 font-medium text-zinc-500">{key}</div>
+          <div className="mb-0.5 font-medium text-muted">{key}</div>
           <Pre text={value} />
         </div>
       ))}
@@ -226,7 +254,7 @@ function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
 
 function Pre({ text }: { text: string }) {
   return (
-    <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-zinc-800 leading-snug dark:text-zinc-200">
+    <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-ink leading-snug">
       {text}
     </pre>
   )

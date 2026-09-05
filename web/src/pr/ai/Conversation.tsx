@@ -21,11 +21,16 @@ export interface ConversationProps {
   paths: readonly string[]
   /** Read at send time, so the header's model picker applies to the next turn. */
   modelRef: RefObject<string>
+  /** Read at send time; null/undefined lets the server apply the catalog default. */
+  reasoningEffortRef?: RefObject<string | null>
   onControls(controls: ChatControls | null): void
   onTurnFinished(chatId: string, messages: ChatMessage[]): void
   suggestions: readonly string[]
   onSuggest(text: string): void
   modelLabel(id: string): string
+  /** A key-billing model to switch to when the ChatGPT subscription fails (optional affordance). */
+  apiFallbackModel?: string | null
+  onSwitchModel?(id: string): void
 }
 
 /**
@@ -39,11 +44,14 @@ export function Conversation({
   record,
   paths,
   modelRef,
+  reasoningEffortRef,
   onControls,
   onTurnFinished,
   suggestions,
   onSuggest,
   modelLabel,
+  apiFallbackModel = null,
+  onSwitchModel,
 }: ConversationProps) {
   const chatId = record.chat.id
   const api = API_ROUTES.prChatMessages(projectId, number, chatId)
@@ -52,10 +60,14 @@ export function Conversation({
       new DefaultChatTransport<ChatMessage>({
         api,
         prepareSendMessagesRequest: ({ messages }) => ({
-          body: { messages, model: modelRef.current } satisfies ChatRequest,
+          body: {
+            messages,
+            model: modelRef.current,
+            ...(reasoningEffortRef?.current ? { reasoningEffort: reasoningEffortRef.current } : {}),
+          } satisfies ChatRequest,
         }),
       }),
-    [api, modelRef],
+    [api, modelRef, reasoningEffortRef],
   )
   // `messages` seeds the Chat once (the parent remounts us per chat id).
   const initialMessages = useMemo(() => asChatMessages(record.messages), [record.messages])
@@ -90,6 +102,8 @@ export function Conversation({
       suggestions={suggestions}
       onSuggest={onSuggest}
       modelLabel={modelLabel}
+      apiFallbackModel={apiFallbackModel}
+      onSwitchModel={onSwitchModel}
     />
   )
 }

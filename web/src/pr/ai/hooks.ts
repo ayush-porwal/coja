@@ -54,7 +54,9 @@ export function useChatRecord(projectId: string, number: number, chatId: string 
     queryKey: aiKeys.chat(projectId, number, chatId ?? ''),
     queryFn: () => api.get<ChatWithMessages>(API_ROUTES.prChat(projectId, number, chatId ?? '')),
     enabled: chatId !== null,
-    staleTime: 30_000,
+    // Always refetch on mount: switching to a history chat must show the
+    // server's truth, never a possibly-stale cache entry.
+    staleTime: 0,
     retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
   })
 }

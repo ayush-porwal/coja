@@ -52,7 +52,7 @@ describe('Composer', () => {
       bridge.attachSelection(chip)
     })
     expect(screen.getAllByRole('button', { name: 'src/auth.ts:41–58 @ head' })).toHaveLength(1)
-    expect(screen.getByText('1 context chip')).toBeDefined()
+    expect(screen.getByText('1 selection attached')).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: 'src/auth.ts:41–58 @ head' }))
     expect(screen.getByTestId('chip-excerpt').textContent).toBe('const ttl = 60')
@@ -73,7 +73,7 @@ describe('Composer', () => {
     act(() => bridge.attachSelection(chip))
     act(() => bridge.attachSelection({ ...chip, id: 'chip-2', path: 'src/b.ts' }))
     fireEvent.click(screen.getByRole('button', { name: 'Remove src/b.ts:41–58 @ head' }))
-    expect(screen.getByText('1 context chip')).toBeDefined()
+    expect(screen.getByText('1 selection attached')).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     expect(onSend).toHaveBeenCalledWith([
@@ -106,15 +106,15 @@ describe('Composer', () => {
   it('is disabled without a model; while streaming Send becomes Stop but the draft stays editable', () => {
     const { onStop, rerender, onSend } = renderComposer({
       disabled: true,
-      disabledReason: 'No AI provider configured — add an API key in Setup',
+      disabledReason: 'No model provider configured',
     })
     expect(textarea().disabled).toBe(true)
-    expect(textarea().placeholder).toBe('No AI provider configured — add an API key in Setup')
+    expect(textarea().placeholder).toBe('No model provider configured')
     expect(screen.getByRole('button', { name: 'Send' })).toHaveProperty('disabled', true)
 
     rerender(<Composer onSend={onSend} onStop={onStop} streaming disabled={false} />)
     expect(textarea().disabled).toBe(false)
-    expect(textarea().placeholder).toContain('Draft your next question')
+    expect(textarea().placeholder).toContain('Working')
     fireEvent.change(textarea(), { target: { value: 'And the tests?' } })
     fireEvent.keyDown(textarea(), { key: 'Enter' })
     expect(onSend).not.toHaveBeenCalled()

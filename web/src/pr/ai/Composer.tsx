@@ -8,11 +8,11 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Button } from '../../ui'
 import { bridge } from '../bridge'
 import { errorMessage } from '../errors'
 import { ContextChipView } from './ContextChipView'
 import type { ChatMessage } from './types'
+import { useWorkingPhrase } from './workingPhrase'
 
 /** Sent as the text when the user submits chips without typing anything. */
 export const DEFAULT_CHIP_PROMPT = 'What about this selection?'
@@ -33,13 +33,17 @@ export interface ComposerProps {
    */
   onSend(parts: ChatMessage['parts']): void | Promise<void>
   onStop(): void
-  /** A turn is in flight: Send becomes Stop; the draft stays editable but cannot be sent yet. */
+  /** A turn is in flight: Send becomes Stop; the draft stays editable for the next question. */
   streaming: boolean
   /** No model available: everything is disabled and `disabledReason` shows. */
   disabled: boolean
   disabledReason?: string
   /** Something else is in flight (creating the chat): Send waits. */
   busy?: boolean
+  /** Notified whenever the number of attached (unsent) chips changes — the collapsed-panel badge reads it. */
+  onChipsChange?: (count: number) => void
+  /** Rendered inside the footer above the input card (the model/effort pickers live here). */
+  above?: React.ReactNode
 }
 
 /** Chips (in order) followed by the text — exactly what the server converts for the model. */
@@ -51,10 +55,12 @@ export function toMessageParts(chips: readonly ContextChip[], text: string): Cha
 }
 
 /**
- * The composer (design.md §4): the context-chip strip fed by "Ask AI"
- * (`bridge.onAttachSelection`), an auto-growing textarea (Enter sends,
- * Shift+Enter breaks the line) and Send/Stop. While an answer streams the
- * reviewer can already draft the next question; Enter then simply waits.
+ * The composer: one card holding the context-chip strip (fed by "Ask AI" via
+ * `bridge.onAttachSelection`), an auto-growing textarea (Enter sends,
+ * Shift+Enter breaks the line) and the send/stop controls. While an answer
+ * streams the card shows a live "Generating" indicator and Stop — which
+ * aborts the request end to end (the server cancels the provider call) — and
+ * the reviewer can already draft the next question.
  */
 export function Composer({
   ref,
@@ -64,12 +70,19 @@ export function Composer({
   disabled,
   disabledReason,
   busy = false,
+  onChipsChange,
+  above,
 }: ComposerProps) {
   const [chips, setChips] = useState<ContextChip[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [focused, setFocused] = useState(false)
   const textarea = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    onChipsChange?.(chips.length)
+  }, [chips.length, onChipsChange])
 
   useEffect(
     () =>
@@ -132,55 +145,128 @@ export function Composer({
   const removeChip = (id: string) => setChips((prev) => prev.filter((c) => c.id !== id))
 
   return (
-    <footer className="shrink-0 border-zinc-200 border-t p-2 dark:border-zinc-800">
-      {chips.length > 0 && (
-        <ul className="mb-2 flex flex-col gap-1" aria-label="Attached context">
-          {chips.map((chip) => (
-            <li key={chip.id}>
-              <ContextChipView chip={chip} onRemove={() => removeChip(chip.id)} />
-            </li>
-          ))}
-        </ul>
-      )}
-      <textarea
-        ref={textarea}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKeyDown}
-        rows={2}
-        disabled={disabled}
-        aria-label="Message"
-        placeholder={
-          disabled
-            ? (disabledReason ?? 'AI is unavailable')
-            : streaming
-              ? 'Draft your next question… (Send returns when the answer is done)'
-              : 'Ask about this PR… (Enter to send, Shift+Enter for a new line)'
-        }
-        className="min-h-[3.25rem] w-full resize-none rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-      />
-      <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-zinc-500">
-        <span className="min-w-0 truncate">
-          {error ? (
-            <span role="alert" className="text-red-600 dark:text-red-400">
-              {error}
-            </span>
-          ) : chips.length > 0 ? (
-            `${chips.length} context ${chips.length === 1 ? 'chip' : 'chips'}`
-          ) : (
-            ''
-          )}
-        </span>
-        {streaming ? (
-          <Button size="sm" variant="secondary" onClick={onStop}>
-            Stop
-          </Button>
-        ) : (
-          <Button size="sm" variant="primary" onClick={() => void send()} disabled={!canSend}>
-            Send
-          </Button>
+    <footer className="shrink-0 border-edge border-t p-2">
+      {above}
+      <div
+        className={`rounded-xl border bg-card transition-colors ${
+          focused ? 'border-accent' : 'border-edge-strong'
+        }`}
+      >
+        {chips.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5 px-2 pt-2" aria-label="Attached context">
+            {chips.map((chip) => (
+              <li key={chip.id} className="min-w-0 max-w-full">
+                <ContextChipView chip={chip} onRemove={() => removeChip(chip.id)} />
+              </li>
+            ))}
+          </ul>
         )}
+        <textarea
+          ref={textarea}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          rows={2}
+          disabled={disabled}
+          aria-label="Message"
+          placeholder={
+            disabled
+              ? (disabledReason ?? 'No model provider configured')
+              : streaming
+                ? 'Working — draft your next question while this one finishes'
+                : 'Ask about this pull request…'
+          }
+          className="max-h-[240px] min-h-[3.25rem] w-full resize-none bg-transparent px-3 py-2 text-sm text-ink outline-none placeholder:text-faint disabled:opacity-60"
+        />
+        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+          <span className="min-w-0 flex-1 truncate text-xs">
+            {error ? (
+              <span role="alert" className="text-danger">
+                {error}
+              </span>
+            ) : streaming ? (
+              <WorkingIndicator active />
+            ) : chips.length > 0 ? (
+              <span className="text-muted">
+                {chips.length} {chips.length === 1 ? 'selection' : 'selections'} attached
+              </span>
+            ) : (
+              ''
+            )}
+          </span>
+          {streaming ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-edge-strong px-2.5 py-1.5 text-xs font-medium text-ink hover:border-danger hover:text-danger"
+              title="Stop generating — cancels the request and the provider call"
+            >
+              <StopIcon />
+              Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={!canSend}
+              aria-label="Send"
+              title="Send (Enter)"
+              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-accent text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <SendIcon />
+            </button>
+          )}
+        </div>
       </div>
     </footer>
+  )
+}
+
+/** Live in-card indicator while a turn is in flight; the phrase rotates. */
+function WorkingIndicator({ active }: { active: boolean }) {
+  const phrase = useWorkingPhrase(active)
+  return (
+    <span className="flex items-center gap-1.5 text-muted" role="status">
+      <span className="flex gap-0.5">
+        <Dot delay="0ms" />
+        <Dot delay="150ms" />
+        <Dot delay="300ms" />
+      </span>
+      {phrase}
+    </span>
+  )
+}
+
+function Dot({ delay }: { delay: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="size-1 animate-bounce rounded-full bg-muted"
+      style={{ animationDelay: delay }}
+    />
+  )
+}
+
+function SendIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-4">
+      <path
+        d="M8 13V3.5M8 3.5 3.5 8M8 3.5 12.5 8"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function StopIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3">
+      <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+    </svg>
   )
 }

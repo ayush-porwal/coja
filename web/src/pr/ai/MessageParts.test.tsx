@@ -341,7 +341,7 @@ describe('MessageList', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
-  it('shows a thinking indicator while the request is submitted', () => {
+  it('keeps the empty state hidden mid-turn; the working state lives in the composer only', () => {
     render(
       <MessageList
         messages={[]}
@@ -355,8 +355,9 @@ describe('MessageList', () => {
         modelLabel={label}
       />,
     )
-    expect(screen.getByRole('status').textContent).toContain('Thinking')
     expect(screen.queryByRole('list', { name: 'Suggestions' })).toBeNull()
+    // No duplicate indicator in the conversation itself.
+    expect(screen.queryByRole('status')).toBeNull()
   })
 })
 
