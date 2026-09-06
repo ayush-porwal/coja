@@ -1,7 +1,25 @@
 {
   "name": "@ayushporwal/coja",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Local code review for GitHub pull requests, with an AI sidepanel that helps the human reviewer",
+  "license": "MIT",
+  "author": "Ayush Porwal <ayush.porwal@ef.com>",
+  "homepage": "https://github.com/ayush-porwal/coja#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayush-porwal/coja.git"
+  },
+  "bugs": "https://github.com/ayush-porwal/coja/issues",
+  "keywords": [
+    "github",
+    "pull-request",
+    "code-review",
+    "review",
+    "diff",
+    "ai",
+    "llm",
+    "local-first"
+  ],
   "type": "module",
   "bin": {
     "coja": "./bin/coja.js"

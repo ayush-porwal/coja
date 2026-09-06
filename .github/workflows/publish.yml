@@ -1,0 +1,58 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm --provenance
+
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck, lint and test
+        run: pnpm check
+
+      - name: Build (web → server/public, server → server/dist)
+        run: pnpm build
+
+      - name: Publish only if the version is new
+        id: version
+        working-directory: server
+        run: |
+          local_version="$(node -p "require('./package.json').version")"
+          published_version="$(npm view @ayushporwal/coja version 2>/dev/null || true)"
+          if [ "$local_version" = "$published_version" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Version $local_version is already published — nothing to do."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Publishing $local_version (registry has: ${published_version:-nothing})."
+          fi
+
+      - name: Publish to npm
+        if: steps.version.outputs.publish == 'true'
+        working-directory: server
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
