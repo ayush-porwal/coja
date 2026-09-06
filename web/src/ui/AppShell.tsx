@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
+import { BrandMark } from '../brand/BrandMark'
+import { useTheme } from '../themes/ThemeContext'
 import { cn, focusRing } from './cn'
 
 export interface AppShellProps {
@@ -43,13 +45,15 @@ function SettingsLink({ active }: { active: boolean }) {
 
 /**
  * Header + centred content column shared by Setup, Projects and the PR list.
- * The wordmark is the way home; the breadcrumb names where you are (Setup
+ * The wordmark is the way home — the CJ mark in the active theme beside the
+ * name — and the breadcrumb names where you are (Setup
  * renders a "Settings" crumb automatically), evenly spaced as one run of
  * `coja / crumb`. The PR review screen uses its own full-bleed layout and
  * does not go through here.
  */
 export function AppShell({ breadcrumb, actions, children }: AppShellProps) {
   const { pathname } = useLocation()
+  const { palette, appearance } = useTheme()
   const setupActive = pathname.startsWith('/setup')
   const crumb = breadcrumb ?? (setupActive ? 'Settings' : null)
   return (
@@ -58,8 +62,12 @@ export function AppShell({ breadcrumb, actions, children }: AppShellProps) {
         <div className="mx-auto flex h-12 max-w-5xl items-center gap-2.5 px-4">
           <Link
             to="/"
-            className={cn('shrink-0 rounded-sm text-base font-semibold tracking-tight', focusRing)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-sm text-base font-semibold tracking-tight',
+              focusRing,
+            )}
           >
+            <BrandMark paletteId={palette.id} appearance={appearance} size={20} />
             coja
           </Link>
           {crumb && (

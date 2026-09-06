@@ -53,8 +53,8 @@ it('renders a PR row with breadcrumb, badges, author, branches and relative time
   expect(screen.getByText('2 open')).toBeDefined()
 
   // One author has an avatar URL (24px image); the other falls back to an initial.
-  const avatars = container.querySelectorAll('img')
-  expect(avatars).toHaveLength(1)
+  // (The header's CJ mark is also an img now; count only list avatars.)
+  const avatars = container.querySelectorAll('main ul img')
   expect(avatars[0]?.src).toBe('https://avatars.githubusercontent.com/u/1?v=4')
   expect(avatars[0]?.getAttribute('width')).toBe('24')
   expect(avatars[0]?.getAttribute('alt')).toBe('')
