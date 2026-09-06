@@ -223,6 +223,48 @@ function params(chat: Chat, overrides: Partial<ChatTurnParams> = {}): ChatTurnPa
 }
 
 describe('handleChatTurn', () => {
+  it('names a first-turn chat with the turn model once the answer is persisted', async () => {
+    // The turn model also serves the title call (doGenerate).
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: convertArrayToReadableStream<StreamPart>([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: ANSWER },
+          { type: 'text-end', id: 't1' },
+          { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage },
+        ]),
+      }),
+      doGenerate: async () => ({
+        content: [{ type: 'text', text: 'Greeting renamed' }],
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage,
+        warnings: [],
+      }),
+    })
+    const chat = newChat()
+    const res = await handleChatTurn(params(chat, { languageModel: model }))
+    await res.text() // drain the stream; onEnd persists and fires the title call
+
+    // The fallback title is stored immediately; the model's name replaces it.
+    expect(getChat(db, chat.id)?.chat.title).toBe('Why did this change?')
+    await vi.waitFor(() => {
+      expect(getChat(db, chat.id)?.chat.title).toBe('Greeting renamed')
+    })
+  })
+
+  it('keeps the fallback title when the model refuses to name the chat', async () => {
+    // A model without doGenerate cannot answer the title call.
+    const model = textModel(ANSWER)
+    const chat = newChat()
+    const res = await handleChatTurn(params(chat, { languageModel: model }))
+    await res.text()
+
+    await vi.waitFor(() => {
+      expect(getChat(db, chat.id)?.chat.title).toBe('Why did this change?')
+    })
+  })
+
   it('streams a tool round trip and the answer, then persists the conversation', async () => {
     const model = scriptedModel()
     const chat = newChat()

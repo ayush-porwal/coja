@@ -12,7 +12,7 @@ import { type Db, nowIso } from '../db.js'
 import { badRequest } from '../routes/http.js'
 import type { SecretStore } from '../secrets/store.js'
 import type { Chat, ContextChip, GitChangedFile, PullRequestDetail } from '../shared/api.js'
-import { saveMessages } from './chats.js'
+import { deriveTitle, getChat, saveMessages } from './chats.js'
 import { assertKnownToolParts, pruneOlderToolOutputs } from './history.js'
 import { buildSystemPrompt } from './prompt.js'
 import {
@@ -20,6 +20,7 @@ import {
   resolveLanguageModel,
   type SubscriptionProvider,
 } from './providers.js'
+import { applyGeneratedTitle, generateTitle } from './title.js'
 import { createReviewTools, type ToolContext } from './tools.js'
 import { type ChatMessage, chatMessageMetadataSchema, contextChipSchema } from './types.js'
 
@@ -141,8 +142,34 @@ export async function handleChatTurn(params: ChatTurnParams): Promise<Response> 
       // The default hides details behind "An error occurred."; the reviewer should see the real reason.
       onError: (error) => (error instanceof Error ? error.message : String(error)),
       onEnd: ({ messages: all }) => {
+        const firstTurn = getChat(db, chat.id)?.chat.title == null
         saveMessages(db, chat.id, all, { model: modelId })
+        if (firstTurn) void refineTitle(db, chat.id, all, model)
       },
     }),
   })
+}
+
+/**
+ * Name a first-turn chat with its own model. `saveMessages` already stored the
+ * first-user-text fallback; the generated title replaces exactly that fallback
+ * once it arrives. Fire-and-forget: a slow or failing naming call must never
+ * delay or break the response that already streamed.
+ */
+async function refineTitle(
+  db: Db,
+  chatId: string,
+  messages: ChatMessage[],
+  model: LanguageModel,
+): Promise<void> {
+  try {
+    const fallback = deriveTitle(messages)
+    const generated = await generateTitle(model, messages)
+    const applied = applyGeneratedTitle(db, chatId, generated, fallback)
+    console.info(
+      `coja: chat ${chatId} titled: generated=${JSON.stringify(generated)} fallback=${JSON.stringify(fallback)} applied=${applied}`,
+    )
+  } catch (err) {
+    console.warn(`coja: title generation failed for chat ${chatId}:`, err)
+  }
 }
