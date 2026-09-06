@@ -89,12 +89,8 @@ export function PullRequestListScreen() {
             No open pull requests
           </p>
         ) : (
-          <div
-            className={
-              prs.isPlaceholderData ? 'opacity-60 transition-opacity' : 'transition-opacity'
-            }
-          >
-            <ul className="divide-y divide-edge rounded-lg border border-edge bg-card">
+          <div>
+            <ul className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-card shadow-xs">
               {data.items.map((pr) => (
                 <PullRequestRow key={pr.id} pr={pr} projectId={projectId} />
               ))}
@@ -218,38 +214,59 @@ export function windowedPages(current: number, totalPages: number): (number | '�
   return out
 }
 
+/** `1200` → `1.2k`, matching GitHub's diff-stat shorthand. */
+function shortCount(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k` : String(n)
+}
+
 function PullRequestRow({ pr, projectId }: { pr: PullRequestSummary; projectId: string }) {
   const review = REVIEW_BADGES[pr.myReviewState]
   const updated = new Date(pr.updatedAt)
   return (
-    <li className="flex items-start gap-3 px-4 py-3">
-      <span className="w-12 shrink-0 pt-0.5 font-mono text-xs text-muted">#{pr.number}</span>
+    <li className="group flex items-start gap-3 px-4 py-3.5 transition-colors hover:bg-hover">
+      <span className="w-12 shrink-0 pt-0.5 font-mono text-xs text-faint">#{pr.number}</span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link
             to={`/p/${projectId}/pr/${pr.number}`}
-            className={cn('truncate rounded-sm text-sm font-medium hover:underline', focusRing)}
+            className={cn(
+              'truncate rounded-sm text-sm font-medium text-ink group-hover:underline',
+              focusRing,
+            )}
           >
             {pr.title}
           </Link>
           {pr.isDraft && <Badge>Draft</Badge>}
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
             <Avatar actor={pr.author} />
             {pr.author.login}
           </span>
-          <span className="font-mono">
-            {pr.headRefName} → {pr.baseRefName}
+          <span
+            className="inline-flex min-w-0 items-center gap-1"
+            title={`${pr.headRefName} → ${pr.baseRefName}`}
+          >
+            <BranchIcon />
+            <span className="truncate font-mono">
+              {pr.headRefName} <span className="text-faint">→</span> {pr.baseRefName}
+            </span>
           </span>
-          <span>
-            updated{' '}
+          <span className="inline-flex items-center gap-1">
+            <ClockIcon />
             <time
               dateTime={pr.updatedAt}
               title={Number.isNaN(updated.getTime()) ? undefined : updated.toLocaleString()}
             >
-              {formatRelativeTime(pr.updatedAt)}
+              updated {formatRelativeTime(pr.updatedAt)}
             </time>
+          </span>
+          <span
+            className="font-mono"
+            title={`${pr.changedFiles} changed ${pr.changedFiles === 1 ? 'file' : 'files'}`}
+          >
+            <span className="text-ok">+{shortCount(pr.additions)}</span>{' '}
+            <span className="text-danger">−{shortCount(pr.deletions)}</span>
           </span>
         </div>
       </div>
@@ -259,6 +276,41 @@ function PullRequestRow({ pr, projectId }: { pr: PullRequestSummary; projectId: 
         </Badge>
       )}
     </li>
+  )
+}
+
+function BranchIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      className="size-3.5 shrink-0 text-faint"
+    >
+      <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="11.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M4.5 5.25v5.5M11.5 5.25c0 2.5-2 3-4.5 3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function ClockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      className="size-3.5 shrink-0 text-faint"
+    >
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
   )
 }
 

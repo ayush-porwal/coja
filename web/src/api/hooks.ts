@@ -11,7 +11,7 @@ import {
   type PullRequestPage,
   type SetupStatus,
 } from '@coja/shared/api'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { aiKeys } from '../pr/ai/hooks'
 import { api } from './client'
 
@@ -204,9 +204,9 @@ export function useDeleteProject() {
 // ---------------------------------------------------------------------------
 
 /**
- * One page of open PRs (100 per page). `placeholderData: keepPreviousData`
- * keeps the current list rendered (dimmed by the caller) while the next page
- * loads, so paging never flashes to a skeleton.
+ * One page of open PRs (100 per page). Each page is its own cache entry: a
+ * revisited page renders instantly with no network call, while a page that
+ * must be fetched shows the skeletons again (`isPending` until it arrives).
  */
 export function usePullRequests(projectId: string, page: number) {
   return useQuery({
@@ -215,6 +215,5 @@ export function usePullRequests(projectId: string, page: number) {
       api.get<PullRequestPage>(
         page === 1 ? API_ROUTES.prs(projectId) : `${API_ROUTES.prs(projectId)}?page=${page}`,
       ),
-    placeholderData: keepPreviousData,
   })
 }

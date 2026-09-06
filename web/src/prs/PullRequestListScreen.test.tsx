@@ -1,13 +1,15 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { project, pullRequest, setupStatus } from '../test/fixtures'
-import { installMockApi, jsonError } from '../test/mockApi'
+import { deferred, installMockApi, jsonError } from '../test/mockApi'
 import { renderAt } from '../test/render'
 
 const base = {
   'GET /api/setup/status': setupStatus(),
   'GET /api/projects/p1': project({ id: 'p1', owner: 'octo', repo: 'repo' }),
 }
+
+type PullRequestPageShape = ReturnType<typeof pageOf>
 
 /** A one-page PullRequestPage wrapping the given rows. */
 function pageOf(items: unknown[], over: Record<string, unknown> = {}) {
@@ -46,8 +48,8 @@ it('renders a PR row with breadcrumb, badges, author, branches and relative time
   expect(screen.getByText('Changes requested')).toBeDefined()
   expect(screen.getByText('hubot')).toBeDefined()
   expect(screen.getByText('monalisa')).toBeDefined()
-  expect(screen.getByText('feat/thing → main')).toBeDefined()
-  expect(screen.getByText('5m ago').getAttribute('datetime')).toBe(fiveMinutesAgo)
+  expect(screen.getByTitle('feat/thing → main').textContent).toContain('feat/thing')
+  expect(screen.getByText('updated 5m ago').getAttribute('datetime')).toBe(fiveMinutesAgo)
   expect(screen.getByText('2 open')).toBeDefined()
 
   // One author has an avatar URL (24px image); the other falls back to an initial.
@@ -155,6 +157,33 @@ describe('pagination', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Page 1' }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Page 1' }).getAttribute('aria-current')).toBe(
+        'page',
+      ),
+    )
+  })
+
+  it('shows skeletons while an uncached page fetches; cached pages render instantly', async () => {
+    const held = deferred<PullRequestPageShape>()
+    let page = 1
+    const mock = installMockApi({
+      ...base,
+      'GET /api/projects/p1/prs': ({ url }) => {
+        page = Number(url.searchParams.get('page') ?? '1')
+        return page === 1 ? big([pullRequest()], 1, 830) : held.promise
+      },
+    })
+    void mock
+    renderAt('/p/p1')
+    expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
+
+    // Uncached page 2: skeletons while the fetch is held.
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByRole('list', { name: 'Loading pull requests' })).toBeDefined()
+    expect(screen.queryByRole('navigation', { name: 'Pull request pages' })).toBeNull()
+
+    held.resolve(big([pullRequest({ number: 2 })], 2, 830))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Page 2' }).getAttribute('aria-current')).toBe(
         'page',
       ),
     )
