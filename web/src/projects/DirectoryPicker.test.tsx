@@ -140,6 +140,30 @@ describe('DirectoryPicker', () => {
     await screen.findByText('coja', undefined, { timeout: 3000 })
   })
 
+  it('announces the highlighted row and wraps ArrowUp to the last folder', async () => {
+    installFs()
+    renderPicker(`${HOME}/`)
+    fireEvent.click(screen.getByRole('button', { name: 'Browse…' }))
+    await screen.findByText('my-repo')
+    const input = screen.getByRole('combobox')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(input.getAttribute('aria-activedescendant')).toBe('project-path-opt-2')
+    expect(screen.getByRole('option', { selected: true }).textContent).toContain('my-repo')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect((input as HTMLInputElement).value).toBe(`${HOME}/my-repo`)
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('does not submit the parent form on Enter when the open listing is empty', async () => {
+    installFs()
+    renderPicker(`${HOME}/empty/`)
+    fireEvent.click(screen.getByRole('button', { name: 'Browse…' }))
+    await screen.findByText(/No folders match/)
+    expect(fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' })).toBe(false)
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
   it('shows the truncation hint when the listing is capped', async () => {
     installMockApi({
       'GET /api/fs/home': { home: HOME },

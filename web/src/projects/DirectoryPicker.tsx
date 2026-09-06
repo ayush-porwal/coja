@@ -1,5 +1,5 @@
 import type { DirEntry } from '@coja/shared/api'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFsDirs, useFsHome } from '../api/hooks'
 import { usePersistedState } from '../pr/usePersistedState'
 import { Button, cn, Input, Spinner } from '../ui'
@@ -50,6 +50,8 @@ export interface DirectoryPickerProps {
 
 export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPickerProps) {
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   // The listed directory/prefix, settled ~150 ms behind typing so keystrokes
   // do not fire a request each. Reset whenever the popover opens.
   const [settled, setSettled] = useState<{ dir: string; prefix: string } | null>(null)
@@ -79,11 +81,26 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
     return () => clearTimeout(timer)
   }, [open, derived, startDir])
 
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', dismiss)
+    return () => document.removeEventListener('mousedown', dismiss)
+  }, [open])
+
+  useEffect(() => {
+    if (highlight < 0) return
+    document.getElementById(`${id}-opt-${highlight}`)?.scrollIntoView?.({ block: 'nearest' })
+  }, [highlight, id])
+
   const commit = (path: string) => {
     const parent = parentOf(path)
     if (parent) setLastParent(parent)
     onChange(path)
     setOpen(false)
+    inputRef.current?.focus()
   }
 
   const descend = (name: string) => {
@@ -94,12 +111,16 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open) {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') setOpen(true)
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        setOpen(true)
+      }
       return
     }
     const entries = listing.data?.dirs ?? []
     if (event.key === 'Escape') {
       event.preventDefault()
+      event.stopPropagation()
       setOpen(false)
       return
     }
@@ -107,6 +128,7 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
       event.preventDefault()
       if (entries.length === 0) return
       setHighlight((current) => {
+        if (current < 0) return event.key === 'ArrowDown' ? 0 : entries.length - 1
         const next = event.key === 'ArrowDown' ? current + 1 : current - 1
         return (next + entries.length) % entries.length
       })
@@ -115,8 +137,8 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
     if (event.key === 'Enter') {
       // While browsing, Enter belongs to the picker; only a closed popover
       // submits the Add-project form.
-      if (entries.length === 0) return
       event.preventDefault()
+      if (entries.length === 0) return
       const entry = entries[highlight] ?? entries[0]
       if (!entry) return
       if (entry.hasGit) commit(join(settled?.dir ?? '', entry.name))
@@ -128,9 +150,10 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
   const segments = listedDir === '/' ? [''] : listedDir.split('/').slice(1)
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <div className="flex items-start gap-2">
         <Input
+          ref={inputRef}
           id={id}
           name="path"
           className="font-mono"
@@ -143,7 +166,13 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
           aria-expanded={open}
           aria-controls={`${id}-browser`}
           aria-autocomplete="list"
+          aria-activedescendant={
+            open && highlight >= 0 && listing.data?.dirs[highlight]
+              ? `${id}-opt-${highlight}`
+              : undefined
+          }
           onChange={(event) => {
+            setHighlight(-1)
             onChange(event.target.value)
             setOpen(true)
           }}
@@ -162,106 +191,100 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
       </div>
 
       {open && (
-        <>
-          {/* Click-away layer; the popover itself stops the event by sitting above it. */}
-          <div className="fixed inset-0 z-20" aria-hidden="true" onClick={() => setOpen(false)} />
-          <div
-            id={`${id}-browser`}
-            role="listbox"
-            aria-label="Folders"
-            className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-72 flex-col overflow-hidden rounded-md border border-edge-strong bg-card shadow-lg"
-          >
-            {settled && (
-              <div className="flex items-center gap-1 overflow-x-auto border-edge border-b px-2 py-1.5 text-xs text-muted">
-                <button
-                  type="button"
-                  className="shrink-0 rounded px-1 py-0.5 hover:bg-hover hover:text-ink disabled:opacity-40"
-                  disabled={parentOf(settled.dir) === null}
-                  aria-label="Up one folder"
-                  onClick={() => {
-                    const parent = parentOf(settled.dir)
-                    if (parent !== null) onChange(`${parent === '/' ? '/' : parent}/`)
-                  }}
-                >
-                  ⤴
-                </button>
-                <span className="shrink-0 font-mono">/</span>
-                {segments.map((segment, index) => {
-                  const target = `/${segments.slice(0, index + 1).join('/')}`
-                  return (
-                    <button
-                      key={`${target}-${segment}`}
-                      type="button"
-                      className="shrink-0 rounded px-1 py-0.5 font-mono hover:bg-hover hover:text-ink"
-                      onClick={() => onChange(`${target === '/' ? '' : target}/`)}
-                    >
-                      {segment}
-                    </button>
-                  )
-                })}
+        <div
+          id={`${id}-browser`}
+          role="listbox"
+          aria-label="Folders"
+          className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-72 flex-col overflow-hidden rounded-md border border-edge-strong bg-card shadow-lg"
+        >
+          {settled && (
+            <div className="flex items-center gap-1 overflow-x-auto border-edge border-b px-2 py-1.5 text-xs text-muted">
+              <button
+                type="button"
+                className="shrink-0 rounded px-1 py-0.5 hover:bg-hover hover:text-ink disabled:opacity-40"
+                disabled={parentOf(settled.dir) === null}
+                aria-label="Up one folder"
+                onClick={() => {
+                  const parent = parentOf(settled.dir)
+                  if (parent !== null) onChange(`${parent === '/' ? '/' : parent}/`)
+                }}
+              >
+                ⤴
+              </button>
+              <span className="shrink-0 font-mono">/</span>
+              {segments.map((segment, index) => {
+                const target = `/${segments.slice(0, index + 1).join('/')}`
+                return (
+                  <button
+                    key={`${target}-${segment}`}
+                    type="button"
+                    className="shrink-0 rounded px-1 py-0.5 font-mono hover:bg-hover hover:text-ink"
+                    onClick={() => onChange(`${target === '/' ? '' : target}/`)}
+                  >
+                    {segment}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {listing.isPending && (
+              <p className="flex items-center gap-2 px-3 py-2.5 text-muted text-sm">
+                <Spinner size="sm" /> Listing folders…
+              </p>
+            )}
+            {listing.isError && (
+              <div className="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
+                <span className="min-w-0 break-words text-danger">
+                  Could not list {listedDir || 'this folder'}.
+                </span>
+                {home.data && (
+                  <Button size="sm" variant="ghost" onClick={() => onChange(`${home.data.home}/`)}>
+                    Start from home
+                  </Button>
+                )}
               </div>
             )}
-
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {listing.isPending && (
-                <p className="flex items-center gap-2 px-3 py-2.5 text-muted text-sm">
-                  <Spinner size="sm" /> Listing folders…
-                </p>
-              )}
-              {listing.isError && (
-                <div className="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
-                  <span className="text-danger">Could not list {listedDir || 'this folder'}.</span>
-                  {home.data && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onChange(`${home.data.home}/`)}
-                    >
-                      Start from home
-                    </Button>
-                  )}
-                </div>
-              )}
-              {listing.data && listing.data.dirs.length === 0 && (
-                <p className="px-3 py-2.5 text-muted text-sm">
-                  No folders match “{settled?.prefix}”.
-                </p>
-              )}
-              {listing.data?.dirs.map((entry, index) => (
-                <BrowserRow
-                  key={entry.name}
-                  entry={entry}
-                  highlighted={highlight === index}
-                  id={`${id}-opt-${index}`}
-                  onDescend={() => descend(entry.name)}
-                  onUse={() => commit(join(listedDir, entry.name))}
-                />
-              ))}
-              {listing.data?.truncated && (
-                <p className="border-edge border-t px-3 py-1.5 text-faint text-xs">
-                  Showing the first {listing.data.dirs.length} of {listing.data.total} folders —
-                  keep typing to narrow.
-                </p>
-              )}
-            </div>
-
-            {settled && settled.dir !== '' && (
-              <div className="border-edge border-t p-1.5">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="w-full justify-start"
-                  onClick={() => commit(settled.dir)}
-                >
-                  Use this folder
-                  <span className="ml-auto font-mono text-muted">
-                    {settled.dir === '/' ? '/' : settled.dir.split('/').pop()}
-                  </span>
-                </Button>
-              </div>
+            {listing.data && listing.data.dirs.length === 0 && (
+              <p className="px-3 py-2.5 text-muted text-sm">
+                No folders match “{settled?.prefix}”.
+              </p>
+            )}
+            {listing.data?.dirs.map((entry, index) => (
+              <BrowserRow
+                key={entry.name}
+                entry={entry}
+                highlighted={highlight === index}
+                id={`${id}-opt-${index}`}
+                onDescend={() => descend(entry.name)}
+                onUse={() => commit(join(listedDir, entry.name))}
+              />
+            ))}
+            {listing.data?.truncated && (
+              <p className="border-edge border-t px-3 py-1.5 text-faint text-xs">
+                Showing the first {listing.data.dirs.length} of {listing.data.total} folders — keep
+                typing to narrow.
+              </p>
             )}
           </div>
-        </>
+
+          {settled && settled.dir !== '' && (
+            <div className="border-edge border-t p-1.5">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-full justify-start"
+                onClick={() => commit(settled.dir)}
+              >
+                Use this folder
+                <span className="ml-auto min-w-0 truncate font-mono text-muted">
+                  {settled.dir === '/' ? '/' : settled.dir.split('/').pop()}
+                </span>
+              </Button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
