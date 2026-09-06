@@ -1,5 +1,6 @@
 import type { ReviewComment, ReviewThread } from '@coja/shared/api'
 import { useState } from 'react'
+import { ConfirmDialog } from '../ui'
 import { Avatar } from './Avatar'
 import { errorMessage } from './errors'
 import { formatAbsolute, formatRelative } from './format'
@@ -119,6 +120,7 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(comment.body)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const save = async () => {
     const body = draft.trim()
@@ -133,7 +135,6 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
   }
 
   const del = async () => {
-    if (!window.confirm('Delete this comment on GitHub?')) return
     setError(null)
     try {
       await remove.mutateAsync(comment.id)
@@ -144,6 +145,19 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
 
   return (
     <article className="px-3 py-2">
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this comment?"
+        description="It is deleted on GitHub. This cannot be undone."
+        confirmLabel="Delete"
+        icon="trash"
+        busy={remove.isPending}
+        onConfirm={() => {
+          setConfirmingDelete(false)
+          void del()
+        }}
+        onCancel={() => setConfirmingDelete(false)}
+      />
       <header className="flex items-center gap-2 text-xs text-muted">
         <Avatar actor={comment.author} size={18} />
         <span className="font-medium text-ink">{comment.author.login}</span>
@@ -169,7 +183,7 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
             </button>
             <button
               type="button"
-              onClick={() => void del()}
+              onClick={() => setConfirmingDelete(true)}
               disabled={remove.isPending}
               className="hover:underline disabled:opacity-50"
             >

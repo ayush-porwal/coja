@@ -1,9 +1,19 @@
 import type { Project } from '@coja/shared/api'
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { useDeleteProject, useProjects } from '../api/hooks'
-import { AppShell, Badge, Button, cn, ErrorNotice, focusRing, SkeletonRows } from '../ui'
-import { BrandLoader } from '../brand/BrandLoader'
+import { BrandMark } from '../brand/BrandMark'
 import { useTheme } from '../themes/ThemeContext'
+import {
+  AppShell,
+  Badge,
+  Button,
+  ConfirmDialog,
+  cn,
+  ErrorNotice,
+  focusRing,
+  SkeletonRows,
+} from '../ui'
 import { AddProjectPanel } from './AddProjectPanel'
 
 /** Home (design §2): the project list plus the add-project panel. */
@@ -39,10 +49,9 @@ export function ProjectsScreen() {
       </div>
 
       {isEmpty ? (
-        /* The handwritten CJ mark in the active theme welcomes an empty home;
-           the loader is decorative (aria-hidden via its own role=img handling). */
+        /* An empty collection is ready for input, so use the completed brand mark. */
         <div className="mt-8 flex justify-center" aria-hidden="true">
-          <BrandLoader paletteId={palette.id} appearance={appearance} size="large" />
+          <BrandMark paletteId={palette.id} appearance={appearance} size={96} />
         </div>
       ) : null}
       <AddProjectPanel intro={isEmpty} className="mt-6" />
@@ -52,12 +61,7 @@ export function ProjectsScreen() {
 
 function ProjectList({ projects }: { projects: Project[] }) {
   const remove = useDeleteProject()
-
-  const confirmRemove = (project: Project) => {
-    const slug = `${project.owner}/${project.repo}`
-    const note = project.kind === 'local' ? ' Your clone on disk is left untouched.' : ''
-    if (window.confirm(`Remove ${slug} from coja?${note}`)) remove.mutate(project.id)
-  }
+  const [pendingRemove, setPendingRemove] = useState<Project | null>(null)
 
   return (
     <div>
@@ -67,7 +71,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
             key={project.id}
             project={project}
             removing={remove.isPending && remove.variables === project.id}
-            onRemove={() => confirmRemove(project)}
+            onRemove={() => setPendingRemove(project)}
           />
         ))}
       </ul>
@@ -76,6 +80,23 @@ function ProjectList({ projects }: { projects: Project[] }) {
           {remove.error.message}
         </p>
       )}
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title={
+          pendingRemove ? `Remove ${pendingRemove.owner}/${pendingRemove.repo} from coja?` : ''
+        }
+        description={
+          pendingRemove?.kind === 'local' ? 'Your clone on disk is left untouched.' : undefined
+        }
+        confirmLabel="Remove"
+        icon="trash"
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (pendingRemove !== null) remove.mutate(pendingRemove.id)
+          setPendingRemove(null)
+        }}
+        onCancel={() => setPendingRemove(null)}
+      />
     </div>
   )
 }

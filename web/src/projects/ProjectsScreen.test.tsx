@@ -1,6 +1,6 @@
 import type { Project } from '@coja/shared/api'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { project, setupStatus } from '../test/fixtures'
 import { deferred, installMockApi, jsonError } from '../test/mockApi'
 import { currentPath, renderAt } from '../test/render'
@@ -98,7 +98,6 @@ it('lists projects with kind badges and removes one after confirming', async () 
     'GET /api/projects': ({ count }) => (count === 0 ? [local, cloned] : [cloned]),
     'DELETE /api/projects/p1': { ok: true },
   })
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
   renderAt('/')
 
   const openLink = await screen.findByRole('link', { name: 'Open octo/repo' })
@@ -109,9 +108,10 @@ it('lists projects with kind badges and removes one after confirming', async () 
   expect(screen.getByRole('heading', { name: 'Add project' })).toBeDefined()
 
   fireEvent.click(screen.getByRole('button', { name: 'Remove octo/repo' }))
-  expect(confirm).toHaveBeenCalledWith(
-    'Remove octo/repo from coja? Your clone on disk is left untouched.',
-  )
+  // The confirm modal states the consequence; confirming performs the removal.
+  expect(await screen.findByText('Remove octo/repo from coja?')).toBeDefined()
+  expect(screen.getByText('Your clone on disk is left untouched.')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
   await waitFor(() => expect(mock.callsTo('DELETE', '/api/projects/p1')).toHaveLength(1))
   await waitFor(() => expect(screen.queryByRole('link', { name: 'Open octo/repo' })).toBeNull())
   expect(screen.getByRole('link', { name: 'Open acme/widgets' })).toBeDefined()
@@ -122,8 +122,9 @@ it('does not delete when the confirm dialog is dismissed', async () => {
     'GET /api/setup/status': setupStatus(),
     'GET /api/projects': [project()],
   })
-  vi.spyOn(window, 'confirm').mockReturnValue(false)
   renderAt('/')
   fireEvent.click(await screen.findByRole('button', { name: 'Remove octo/repo' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
   expect(mock.callsTo('DELETE', '/api/projects/p1')).toHaveLength(0)
+  expect(screen.queryByRole('alertdialog')).toBeNull()
 })

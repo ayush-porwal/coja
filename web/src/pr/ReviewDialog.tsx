@@ -1,5 +1,6 @@
 import type { ReviewEvent } from '@coja/shared/api'
 import { useEffect, useRef, useState } from 'react'
+import { ConfirmDialog } from '../ui'
 import { errorMessage } from './errors'
 import { useDiscardReview, useSubmitReview } from './hooks'
 import { reviewStateLabel } from './Overview'
@@ -31,6 +32,7 @@ export function ReviewDialog({
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [body, setBody] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const submit = useSubmitReview(projectId, number)
   const discard = useDiscardReview(projectId, number)
   const busy = submit.isPending || discard.isPending
@@ -60,14 +62,7 @@ export function ReviewDialog({
   }
 
   const handleDiscard = async () => {
-    const noun = pendingCount === 1 ? 'comment' : 'comments'
-    if (
-      !window.confirm(
-        `Discard your pending review and its ${pendingCount} ${noun}? This cannot be undone.`,
-      )
-    ) {
-      return
-    }
+    setConfirmingDiscard(false)
     setError(null)
     try {
       await discard.mutateAsync()
@@ -109,7 +104,7 @@ export function ReviewDialog({
             rows={5}
             disabled={busy}
             placeholder="Leave a summary (optional for approvals)"
-            className="w-full resize-y rounded border-edge-strong bg-card px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
+            className="w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-sm text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus"
           />
         </label>
         {error && (
@@ -125,7 +120,7 @@ export function ReviewDialog({
             type="button"
             onClick={() => void handleSubmit('APPROVE')}
             disabled={busy}
-            className={`${actionClass} bg-ok text-white hover:opacity-90`}
+            className={`${actionClass} bg-ok-button text-status-button-ink hover:opacity-90`}
           >
             Approve
           </button>
@@ -133,7 +128,7 @@ export function ReviewDialog({
             type="button"
             onClick={() => void handleSubmit('REQUEST_CHANGES')}
             disabled={busy}
-            className={`${actionClass} bg-danger text-white hover:opacity-90`}
+            className={`${actionClass} bg-danger-button text-status-button-ink hover:opacity-90`}
           >
             Request changes
           </button>
@@ -141,7 +136,7 @@ export function ReviewDialog({
             type="button"
             onClick={() => void handleSubmit('COMMENT')}
             disabled={busy}
-            className={`${actionClass} border border-edge-strong text-ink hover:bg-hover border-edge-strong text-ink hover:bg-hover`}
+            className={`${actionClass} border border-edge-strong text-ink hover:bg-hover`}
           >
             Comment
           </button>
@@ -149,7 +144,7 @@ export function ReviewDialog({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className={`${actionClass} ml-auto text-muted hover:bg-hover text-muted hover:bg-hover`}
+            className={`${actionClass} ml-auto text-muted hover:bg-hover`}
           >
             Cancel
           </button>
@@ -158,7 +153,7 @@ export function ReviewDialog({
           <div className="mt-4 border-edge border-t pt-3 text-xs">
             <button
               type="button"
-              onClick={() => void handleDiscard()}
+              onClick={() => setConfirmingDiscard(true)}
               disabled={busy}
               className="text-danger hover:underline disabled:opacity-50"
             >
@@ -166,6 +161,18 @@ export function ReviewDialog({
             </button>
           </div>
         )}
+        <ConfirmDialog
+          open={confirmingDiscard}
+          container={dialogRef.current}
+          title="Discard pending review?"
+          description={`Its ${pendingCount} pending ${
+            pendingCount === 1 ? 'comment' : 'comments'
+          } and the summary are removed. This cannot be undone.`}
+          confirmLabel="Discard"
+          busy={discard.isPending}
+          onConfirm={() => void handleDiscard()}
+          onCancel={() => setConfirmingDiscard(false)}
+        />
       </form>
     </dialog>
   )

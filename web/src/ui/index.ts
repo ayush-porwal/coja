@@ -1,6 +1,7 @@
 export { AppShell } from './AppShell'
 export { Badge, type BadgeTone } from './Badge'
 export { Button } from './Button'
+export { ConfirmDialog } from './ConfirmDialog'
 export { cn, focusRing, linkClass } from './cn'
 export { ErrorNotice } from './ErrorNotice'
 export { Field } from './Field'
