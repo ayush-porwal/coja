@@ -2,7 +2,7 @@ import type { AiContextResponse, Chat, ChatWithMessages, ModelInfo } from '@coja
 import { QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { createQueryClient } from '../../api/queryClient'
 import { installMockApi, jsonError, type MockRoutes } from '../../test/mockApi'
 import { makeDetail } from '../testFixtures'
@@ -83,12 +83,6 @@ function renderPanel(queryDefaults: Parameters<typeof createQueryClient>[0] = { 
 
 /** The model pill (custom combobox). */
 const modelTrigger = () => screen.getByRole('combobox', { name: 'Model' })
-/** Opens the picker and clicks the option with this label. */
-async function pickModel(label: string) {
-  fireEvent.click(modelTrigger())
-  const listbox = await screen.findByRole('listbox', { name: 'Model' })
-  fireEvent.click(within(listbox).getByRole('option', { name: label }))
-}
 const textarea = () => screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
 
 beforeEach(() => {
@@ -161,6 +155,38 @@ describe('AiPanel — conversations', () => {
     expect(items[0]?.textContent).toContain('current')
     expect(items[1]?.textContent).toContain('New chat')
     expect(within(items[0] as HTMLElement).getByRole('button', { current: true })).toBeDefined()
+  })
+
+  it('switches to a historical chat from the history menu', async () => {
+    const record2: ChatWithMessages = {
+      chat: chat2,
+      messages: [{ id: 'm3', role: 'user', parts: [{ type: 'text', text: 'Older question' }] }],
+    }
+    installMockApi(
+      routes({
+        [`GET ${BASE}/chats`]: [chat1, chat2],
+        [`GET ${BASE}/chats/c1`]: record1,
+        [`GET ${BASE}/chats/c2`]: record2,
+      }),
+    )
+    renderPanel()
+    expect(await screen.findByText('Explain the TTL change')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    const history = screen.getByRole('region', { name: 'Chat history' })
+    // The second listitem is chat2; its row holds the select button (no aria-label)
+    // and the "Delete chat …" button.
+    const item = within(history).getAllByRole('listitem')[1]
+    const selectButton = within(item as HTMLElement)
+      .getAllByRole('button')
+      .find((button) => button.getAttribute('aria-label') === null)
+    expect(selectButton).toBeDefined()
+    fireEvent.click(selectButton as HTMLElement)
+
+    // The selected chat's own messages render and the choice persists.
+    expect(await screen.findByText('Older question')).toBeDefined()
+    expect(screen.queryByText('Explain the TTL change')).toBeNull()
+    await waitFor(() => expect(localStorage.getItem('coja.aiChat:p1:1')).toBe(JSON.stringify('c2')))
   })
 
   it('resumes the chat remembered in localStorage and drops it when the server no longer has it', async () => {
@@ -270,7 +296,6 @@ describe('AiPanel — conversations', () => {
   })
 
   it('deletes a chat from the history after confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     let deleted = false
     const mock = installMockApi(
       routes({
@@ -286,7 +311,14 @@ describe('AiPanel — conversations', () => {
     expect(await screen.findByText('Explain the TTL change')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete chat New chat' }))
+    // The confirm modal states the consequence; confirming performs the delete.
+    expect(
+      await screen.findByText('Its messages are removed from this machine. This cannot be undone.'),
+    ).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(mock.callsTo('DELETE', `${BASE}/chats/c2`)).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
     await waitFor(() =>
       expect(
         within(screen.getByRole('region', { name: 'Chat history' })).getAllByRole('listitem'),

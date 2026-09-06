@@ -21,6 +21,7 @@ import {
 import { CodeView, type CodeViewHandle, type CodeViewReactOptions } from '@pierre/diffs/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { BrandLoader } from '../brand/BrandLoader'
 import { useTheme } from '../themes/ThemeContext'
 import { Spinner } from '../ui'
 import { bridge } from './bridge'
@@ -173,8 +174,8 @@ export function DiffView({
   const setViewed = useSetViewed(projectId, number)
   // Diff metrics scale with the user's code font size so rows stay aligned.
   const diffMetrics = useMemo(
-    () => diffMetricsForFontSize(typography.codeSize),
-    [typography.codeSize],
+    () => diffMetricsForFontSize(typography.codeSize, typography.codeLineHeight),
+    [typography.codeSize, typography.codeLineHeight],
   )
   const codeStyleVars = useMemo(
     () => ({
@@ -540,6 +541,7 @@ export function DiffView({
         }
         :host, :host * {
           font-family: var(--coja-code-font, ui-monospace, monospace);
+          font-variant-ligatures: var(--coja-code-ligatures, normal);
         }
         [data-diffs-header] {
           font-family: var(--coja-ui-font, system-ui, sans-serif);
@@ -552,7 +554,7 @@ export function DiffView({
       enableGutterUtility: true,
       lineHoverHighlight: 'both',
       layout: DIFF_LAYOUT,
-      itemMetrics: diffMetricsForFontSize(typography.codeSize).itemMetrics,
+      itemMetrics: diffMetrics.itemMetrics,
       onGutterUtilityClick: (range: SelectedLineRange, context: { item: Item }) =>
         gutterClick.current(range, context.item.id),
       onPostRender: (
@@ -562,7 +564,7 @@ export function DiffView({
         context: PostRenderContext,
       ) => postRender.current(phase, context),
     }),
-    [diffStyle, appearance, typography.codeSize],
+    [diffStyle, appearance, diffMetrics.itemMetrics],
   )
 
   // --- selection popover actions ---------------------------------------------------------
@@ -868,6 +870,7 @@ function CenterMessage({
   fileCount,
   onRetryFetch,
 }: CenterMessageProps) {
+  const { palette, appearance } = useTheme()
   let content: React.ReactNode
   if (fetchFailed) {
     content = (
@@ -885,13 +888,12 @@ function CenterMessage({
     )
   } else if (preparing) {
     content = (
-      <p className="flex items-center gap-2">
-        <span
-          className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent"
-          aria-hidden="true"
-        />
-        Preparing diff…
-      </p>
+      <BrandLoader
+        paletteId={palette.id}
+        appearance={appearance}
+        size="medium"
+        label="Preparing diff…"
+      />
     )
   } else if (!ready) {
     content = (
@@ -906,7 +908,14 @@ function CenterMessage({
   } else if (fileCount === 0) {
     content = <p>This pull request has no changed files.</p>
   } else {
-    content = <p>Loading diffs…</p>
+    content = (
+      <BrandLoader
+        paletteId={palette.id}
+        appearance={appearance}
+        size="medium"
+        label="Loading diffs…"
+      />
+    )
   }
   return (
     <div className="flex h-full items-center justify-center p-6 text-sm text-muted" role="status">

@@ -43,11 +43,12 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
         </>
       }
     >
-      {(highlight, setHighlight, close) =>
+      {(highlight, setHighlight, close, optionId) =>
         flat.length === 0 ? (
           <p className="px-2.5 py-2 text-xs text-muted">No models</p>
         ) : (
           [...groups.entries()].map(([provider, list]) => (
+            // biome-ignore lint/a11y/useSemanticElements: group is the correct listbox child; a fieldset may not structure options
             <div
               key={provider}
               role="group"
@@ -56,21 +57,24 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
               <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold tracking-wide text-faint uppercase">
                 {PROVIDER_LABELS[provider] ?? list[0]?.providerLabel ?? provider}
               </p>
-              {list.map((model) => (
-                <DropdownOption
-                  key={model.id}
-                  id={model.id}
-                  selected={model.id === value}
-                  highlighted={flat[highlight]?.id === model.id}
-                  onHover={() => setHighlight(flat.findIndex((m) => m.id === model.id))}
-                  onClick={() => {
-                    onChange(model.id)
-                    close()
-                  }}
-                >
-                  <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                </DropdownOption>
-              ))}
+              {list.map((model) => {
+                const flatIndex = flat.findIndex((m) => m.id === model.id)
+                return (
+                  <DropdownOption
+                    key={model.id}
+                    id={optionId(flatIndex)}
+                    selected={model.id === value}
+                    highlighted={flat[highlight]?.id === model.id}
+                    onHover={() => setHighlight(flatIndex)}
+                    onClick={() => {
+                      onChange(model.id)
+                      close()
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{model.label}</span>
+                  </DropdownOption>
+                )
+              })}
             </div>
           ))
         )
@@ -100,11 +104,11 @@ export function EffortPicker({ efforts, value, onChange }: EffortPickerProps) {
         </>
       }
     >
-      {(highlight, setHighlight, close) =>
+      {(highlight, setHighlight, close, optionId) =>
         efforts.map((level, index) => (
           <DropdownOption
             key={level.effort}
-            id={level.effort}
+            id={optionId(index)}
             selected={level.effort === current}
             highlighted={highlight === index}
             onHover={() => setHighlight(index)}
@@ -136,11 +140,15 @@ interface DropdownProps {
   title: string
   disabled?: boolean
   trigger: React.ReactNode
-  /** Content; receives the highlight index, its setter, and `close` (call after choosing). */
+  /**
+   * Content; receives the highlight index, its setter, `close` (call after
+   * choosing) and the DOM-id getter for options (for aria-activedescendant).
+   */
   children: (
     highlight: number,
     setHighlight: (index: number) => void,
     close: () => void,
+    optionId: (index: number) => string,
   ) => React.ReactNode
 }
 
@@ -152,10 +160,11 @@ interface DropdownProps {
 function Dropdown({ ariaLabel, title, disabled, trigger, children }: DropdownProps) {
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
-  const root = useRef<HTMLDivElement>(null)
+  const root = useRef<HTMLFieldSetElement>(null)
   const listId = useId()
 
   const close = () => setOpen(false)
+  const optionId = (index: number) => `${listId}-option-${index}`
 
   useEffect(() => {
     if (!open) return
@@ -165,6 +174,14 @@ function Dropdown({ ariaLabel, title, disabled, trigger, children }: DropdownPro
     document.addEventListener('mousedown', onPointerDown)
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [open])
+
+  useEffect(() => {
+    if (open) {
+      root.current
+        ?.querySelector(`[id="${listId}-option-${highlight}"]`)
+        ?.scrollIntoView?.({ block: 'nearest' })
+    }
+  }, [open, highlight, listId])
 
   const openWith = () => {
     setOpen(true)
@@ -181,6 +198,7 @@ function Dropdown({ ariaLabel, title, disabled, trigger, children }: DropdownPro
     }
     if (e.key === 'Escape') {
       e.preventDefault()
+      e.stopPropagation()
       close()
       return
     }
@@ -202,7 +220,14 @@ function Dropdown({ ariaLabel, title, disabled, trigger, children }: DropdownPro
   }
 
   return (
-    <div ref={root} className="relative min-w-0">
+    <fieldset
+      ref={root}
+      aria-label={`${ariaLabel} picker`}
+      className="relative min-w-0"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close()
+      }}
+    >
       <button
         type="button"
         role="combobox"
@@ -210,6 +235,7 @@ function Dropdown({ ariaLabel, title, disabled, trigger, children }: DropdownPro
         title={title}
         aria-expanded={open}
         aria-controls={listId}
+        aria-activedescendant={open ? optionId(highlight) : undefined}
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : openWith())}
         onKeyDown={onKeyDown}
@@ -222,12 +248,12 @@ function Dropdown({ ariaLabel, title, disabled, trigger, children }: DropdownPro
           id={listId}
           role="listbox"
           aria-label={ariaLabel}
-          className="absolute bottom-full left-0 z-30 mb-1.5 max-h-72 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-edge-strong bg-card p-1 shadow-lg"
+          className="absolute bottom-full right-0 z-30 mb-1.5 max-h-72 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-edge-strong bg-card p-1 shadow-lg"
         >
-          {children(highlight, setHighlight, close)}
+          {children(highlight, setHighlight, close, optionId)}
         </div>
       )}
-    </div>
+    </fieldset>
   )
 }
 
@@ -252,12 +278,20 @@ function DropdownOption({
 }: DropdownOptionProps) {
   return (
     <div
+      id={id}
       role="option"
       aria-selected={selected}
       data-highlighted={highlighted}
       title={title}
+      tabIndex={-1}
       onMouseEnter={onHover}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
       className={`flex cursor-pointer items-center gap-1.5 rounded px-2 py-1.5 text-xs text-ink ${
         highlighted ? 'bg-active' : ''
       }`}
@@ -268,7 +302,7 @@ function DropdownOption({
           aria-hidden="true"
           viewBox="0 0 16 16"
           fill="none"
-          className="size-3.5 shrink-0 text-accent"
+          className="size-3.5 shrink-0 text-accent-text"
         >
           <path
             d="M3 8.5l3.2 3L13 4.5"

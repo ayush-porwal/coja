@@ -2,7 +2,9 @@ import type { ChatWithMessages, PullRequestDetail } from '@coja/shared/api'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { ErrorNotice, Spinner } from '../../ui'
+import { BrandLoader } from '../../brand/BrandLoader'
+import { useTheme } from '../../themes/ThemeContext'
+import { ConfirmDialog, ErrorNotice } from '../../ui'
 import { errorMessage } from '../errors'
 import { usePersistedState } from '../usePersistedState'
 import { Composer, type ComposerHandle } from './Composer'
@@ -42,6 +44,12 @@ export interface AiPanelProps {
 export const NO_PROVIDER_MESSAGE = 'No model provider configured — add one in Setup'
 
 /**
+ * After a first turn the server names the chat with its own model, a beat
+ * after the conversation is persisted; these refetches pick the name up.
+ */
+export const TITLE_REFETCH_DELAYS_MS = [1500, 5000]
+
+/**
  * The chat sidepanel (design.md §4): header with model picker, reasoning
  * effort, chat history and new chat; the conversation; the composer with its
  * context chips. One persisted chat per PR is current at a time, remembered in
@@ -49,6 +57,7 @@ export const NO_PROVIDER_MESSAGE = 'No model provider configured — add one in 
  */
 export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelProps) {
   const queryClient = useQueryClient()
+  const { palette, appearance } = useTheme()
 
   // --- Model -------------------------------------------------------------
   const models = useAiModels()
@@ -102,6 +111,8 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
   const createChat = useCreateChat(projectId, number)
   const deleteChat = useDeleteChat(projectId, number)
   const [actionError, setActionError] = useState<string | null>(null)
+  // Set by the history menu; the confirm modal below performs the deletion.
+  const [deleteChatId, setDeleteChatId] = useState<string | null>(null)
 
   // --- Live chat controls (from the mounted Conversation) ----------------
   const [controls, setControls] = useState<ChatControls | null>(null)
@@ -132,22 +143,25 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
 
   const composer = useRef<ComposerHandle>(null)
 
-  const handleSend = async (parts: ChatMessage['parts']) => {
-    setActionError(null)
-    if (liveControls) {
-      liveControls.send(parts)
-      return
-    }
-    if (chatId !== null) {
-      // The chat exists but its Conversation has not mounted yet: send once it has.
-      setPending({ chatId, parts })
-      return
-    }
-    if (model === '') throw new Error(NO_PROVIDER_MESSAGE)
-    const chat = await createChat.mutateAsync({ model })
-    setStoredChatId(chat.id)
-    setPending({ chatId: chat.id, parts })
-  }
+  const handleSend = useCallback(
+    async (parts: ChatMessage['parts']) => {
+      setActionError(null)
+      if (liveControls) {
+        liveControls.send(parts)
+        return
+      }
+      if (chatId !== null) {
+        // The chat exists but its Conversation has not mounted yet: send once it has.
+        setPending({ chatId, parts })
+        return
+      }
+      if (model === '') throw new Error(NO_PROVIDER_MESSAGE)
+      const chat = await createChat.mutateAsync({ model })
+      setStoredChatId(chat.id)
+      setPending({ chatId: chat.id, parts })
+    },
+    [liveControls, chatId, model, createChat, setStoredChatId],
+  )
 
   const handleNewChat = async () => {
     setActionError(null)
@@ -160,7 +174,6 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
   }
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this chat? Its messages are removed from this machine.')) return
     setActionError(null)
     try {
       await deleteChat.mutateAsync(id)
@@ -177,6 +190,11 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
         prev ? { ...prev, messages } : prev,
       )
       void queryClient.invalidateQueries({ queryKey: aiKeys.chats(projectId, number) })
+      for (const delay of TITLE_REFETCH_DELAYS_MS) {
+        window.setTimeout(() => {
+          void queryClient.invalidateQueries({ queryKey: aiKeys.chats(projectId, number) })
+        }, delay)
+      }
     },
     [queryClient, projectId, number],
   )
@@ -197,9 +215,7 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
       if (model === '' || noProvider) return
       void handleSend([{ type: 'text', text }])
     },
-    // handleSend closes over liveControls/chatId/model; model is the guard that matters
-    // biome-ignore lint/correctness/useExhaustiveDependencies: rebind when the model or chat changes
-    [model, noProvider, chatId, liveControls, createChat],
+    [handleSend, model, noProvider],
   )
   const [contextOpen, setContextOpen] = useState(false)
   const currentChat = chats.data?.find((c) => c.id === chatId)
@@ -215,12 +231,21 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
           {currentTitle}
         </h2>
         <div className="flex min-w-0 shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => setContextOpen(true)}
+            title="Context & tools"
+            aria-label="Context and tools"
+            className="flex size-7 shrink-0 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
+          >
+            <EyeIcon />
+          </button>
           <HistoryMenu
             chats={chats.data}
             loading={chats.isPending}
             currentId={chatId}
             onSelect={setStoredChatId}
-            onDelete={(id) => void handleDelete(id)}
+            onDelete={setDeleteChatId}
           />
           <button
             type="button"
@@ -231,15 +256,6 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
             className="flex size-7 shrink-0 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink disabled:opacity-40"
           >
             <NewChatIcon />
-          </button>
-          <button
-            type="button"
-            onClick={() => setContextOpen(true)}
-            title="Context & tools"
-            aria-label="Context and tools"
-            className="flex size-7 shrink-0 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
-          >
-            <EyeIcon />
           </button>
         </div>
       </header>
@@ -274,7 +290,14 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
       {chatId === null ? (
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3">
           {chats.isPending ? (
-            <Spinner size="sm" label="Loading chats…" className="text-faint" />
+            <div className="flex justify-center py-6">
+              <BrandLoader
+                paletteId={palette.id}
+                appearance={appearance}
+                size="medium"
+                label="Loading chats…"
+              />
+            </div>
           ) : (
             <Suggestions suggestions={suggestions} onSuggest={sendSuggestion} />
           )}
@@ -316,15 +339,20 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
           </button>
         </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-muted">
-          <Spinner size="sm" label="Loading chat…" />
+        <div className="flex flex-1 items-center justify-center">
+          <BrandLoader
+            paletteId={palette.id}
+            appearance={appearance}
+            size="medium"
+            label="Loading chat…"
+          />
         </div>
       )}
 
       <Composer
         ref={composer}
-        above={
-          <div className="flex items-center gap-1.5 pb-2">
+        actions={
+          <>
             <ModelPicker
               models={modelList}
               value={model}
@@ -332,7 +360,7 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
               disabled={models.isPending}
             />
             <EffortPicker efforts={effortOptions} value={effort} onChange={setEffort} />
-          </div>
+          </>
         }
         onSend={handleSend}
         onStop={() => liveControls?.stop()}
@@ -348,6 +376,20 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
         onClose={() => setContextOpen(false)}
         projectId={projectId}
         number={number}
+      />
+
+      <ConfirmDialog
+        open={deleteChatId !== null}
+        title="Delete this chat?"
+        description="Its messages are removed from this machine. This cannot be undone."
+        confirmLabel="Delete"
+        icon="trash"
+        busy={deleteChat.isPending}
+        onConfirm={() => {
+          if (deleteChatId !== null) void handleDelete(deleteChatId)
+          setDeleteChatId(null)
+        }}
+        onCancel={() => setDeleteChatId(null)}
       />
     </div>
   )

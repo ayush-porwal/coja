@@ -42,8 +42,12 @@ export interface ComposerProps {
   busy?: boolean
   /** Notified whenever the number of attached (unsent) chips changes — the collapsed-panel badge reads it. */
   onChipsChange?: (count: number) => void
-  /** Rendered inside the footer above the input card (the model/effort pickers live here). */
-  above?: React.ReactNode
+  /**
+   * Rendered in the bottom action row on the right, immediately before the
+   * send/stop button — a fixed anchor, so status text of any length never
+   * shifts the model picker's position.
+   */
+  actions?: React.ReactNode
 }
 
 /** Chips (in order) followed by the text — exactly what the server converts for the model. */
@@ -71,7 +75,7 @@ export function Composer({
   disabledReason,
   busy = false,
   onChipsChange,
-  above,
+  actions,
 }: ComposerProps) {
   const [chips, setChips] = useState<ContextChip[]>([])
   const [draft, setDraft] = useState('')
@@ -146,7 +150,6 @@ export function Composer({
 
   return (
     <footer className="shrink-0 border-edge border-t p-2">
-      {above}
       <div
         className={`rounded-xl border bg-card transition-colors ${
           focused ? 'border-accent' : 'border-edge-strong'
@@ -180,8 +183,8 @@ export function Composer({
           }
           className="max-h-[240px] min-h-[3.25rem] w-full resize-none bg-transparent px-3 py-2 text-sm text-ink outline-none placeholder:text-faint disabled:opacity-60"
         />
-        <div className="flex items-center justify-between gap-2 px-2 pb-2">
-          <span className="min-w-0 flex-1 truncate text-xs">
+        <div className="flex items-center gap-2 px-2 pb-2">
+          <span className="max-w-[45%] min-w-0 shrink truncate text-xs">
             {error ? (
               <span role="alert" className="text-danger">
                 {error}
@@ -196,6 +199,8 @@ export function Composer({
               ''
             )}
           </span>
+          <span aria-hidden="true" className="min-w-1 flex-1" />
+          {actions}
           {streaming ? (
             <button
               type="button"

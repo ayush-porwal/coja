@@ -1,5 +1,5 @@
 import type { Chat } from '@coja/shared/api'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Spinner } from '../../ui'
 import { formatAbsolute, formatRelative } from '../format'
 
@@ -22,21 +22,24 @@ export function chatTitle(chat: Chat): string {
  */
 export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: HistoryMenuProps) {
   const [open, setOpen] = useState(false)
+  const panelId = useId()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
   const root = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
+    const panel = panelRef.current
+    const first =
+      panel?.querySelector<HTMLButtonElement>('button[aria-current="true"]') ??
+      panel?.querySelector<HTMLButtonElement>('button')
+    ;(first ?? panel)?.focus()
     const onPointerDown = (e: MouseEvent) => {
       if (root.current && !root.current.contains(e.target as Node)) setOpen(false)
     }
-    const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
     document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
     }
   }, [open])
 
@@ -46,7 +49,8 @@ export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: H
     <div ref={root} className="relative">
       <button
         type="button"
-        aria-haspopup="true"
+        ref={triggerRef}
+        aria-controls={open ? panelId : undefined}
         aria-expanded={open}
         title={count > 0 ? `Chat history (${count})` : 'Chat history'}
         aria-label={count > 0 ? `History (${count})` : 'History'}
@@ -62,8 +66,27 @@ export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: H
       </button>
       {open && (
         <section
+          ref={panelRef}
+          tabIndex={-1}
+          id={panelId}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              setOpen(false)
+              triggerRef.current?.focus()
+            }
+          }}
+          onBlur={(event) => {
+            if (
+              event.relatedTarget instanceof Node &&
+              !root.current?.contains(event.relatedTarget)
+            ) {
+              setOpen(false)
+            }
+          }}
           aria-label="Chat history"
-          className="absolute right-0 z-30 mt-1 w-72 rounded-md border border-edge bg-card p-1 text-xs shadow-lg"
+          className="absolute right-0 z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-md border border-edge bg-card p-1 text-xs shadow-lg"
         >
           {loading && !chats ? (
             <div className="flex items-center gap-2 px-2 py-2 text-muted">
@@ -72,7 +95,7 @@ export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: H
           ) : count === 0 ? (
             <p className="px-2 py-2 text-muted">No chats for this pull request yet.</p>
           ) : (
-            <ul className="max-h-72 overflow-y-auto">
+            <ul className="max-h-72 overflow-y-auto overscroll-contain">
               {(chats ?? []).map((chat) => {
                 const current = chat.id === currentId
                 const title = chatTitle(chat)
@@ -84,6 +107,7 @@ export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: H
                       onClick={() => {
                         onSelect(chat.id)
                         setOpen(false)
+                        triggerRef.current?.focus()
                       }}
                       className={`flex min-w-0 flex-1 flex-col rounded px-2 py-1.5 text-left hover:bg-hover ${
                         current ? 'bg-active' : ''
@@ -93,7 +117,10 @@ export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: H
                         {title}
                         {current && <span className="ml-1 font-normal text-muted">· current</span>}
                       </span>
-                      <span className="text-muted" title={formatAbsolute(chat.updatedAt)}>
+                      <span
+                        className="w-full truncate text-muted"
+                        title={`${formatAbsolute(chat.updatedAt)} · ${chat.model}`}
+                      >
                         {formatRelative(chat.updatedAt)} · {chat.model}
                       </span>
                     </button>
@@ -101,7 +128,11 @@ export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: H
                       type="button"
                       aria-label={`Delete chat ${title}`}
                       title="Delete chat"
-                      onClick={() => onDelete(chat.id)}
+                      onClick={() => {
+                        setOpen(false)
+                        triggerRef.current?.focus()
+                        onDelete(chat.id)
+                      }}
                       className="shrink-0 rounded px-2 text-faint hover:bg-hover hover:text-danger"
                     >
                       ×

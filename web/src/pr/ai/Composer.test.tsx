@@ -135,4 +135,19 @@ describe('Composer', () => {
     expect(textarea().value).toBe('Any risks or missing tests?')
     expect(document.activeElement).toBe(textarea())
   })
+
+  it('anchors the model picker next to the send button, after the status line', () => {
+    renderComposer({ actions: <div data-testid="composer-actions">picker</div> })
+    const row = screen.getByRole('button', { name: 'Send' }).parentElement as HTMLElement
+    const children = Array.from(row.children)
+    const statusIndex = children.findIndex((el) => el.tagName === 'SPAN')
+    const actionsIndex = children.findIndex(
+      (el) => el.getAttribute('data-testid') === 'composer-actions',
+    )
+    const sendIndex = children.indexOf(screen.getByRole('button', { name: 'Send' }))
+    expect(statusIndex).toBe(0)
+    expect(actionsIndex).toBeGreaterThan(statusIndex)
+    expect(sendIndex).toBe(children.length - 1)
+    expect(actionsIndex).toBe(sendIndex - 1)
+  })
 })
