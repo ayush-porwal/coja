@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { project, pullRequest, setupStatus } from '../test/fixtures'
 import { deferred, installMockApi, jsonError } from '../test/mockApi'
 import { renderAt } from '../test/render'
@@ -54,7 +54,7 @@ it('renders a PR row with breadcrumb, badges, author, branches and relative time
 
   // One author has an avatar URL (24px image); the other falls back to an initial.
   // (The header's CJ mark is also an img now; count only list avatars.)
-  const avatars = container.querySelectorAll('main ul img')
+  const avatars = container.querySelectorAll<HTMLImageElement>('main ul img')
   expect(avatars[0]?.src).toBe('https://avatars.githubusercontent.com/u/1?v=4')
   expect(avatars[0]?.getAttribute('width')).toBe('24')
   expect(avatars[0]?.getAttribute('alt')).toBe('')
@@ -213,64 +213,85 @@ describe('windowedPages', () => {
 })
 
 describe('filter bar', () => {
-  it('debounces typed filters into the URL and fetch, and highlights the bar', async () => {
+  it('parses qualifiers and text from one query box into the fetch', async () => {
     const mock = installMockApi({
       ...base,
-      'GET /api/projects/p1/prs': ({ url }) => {
-        const text = url.searchParams.get('text')
-        const author = url.searchParams.get('author')
-        return pageOf([pullRequest({ title: text ? `Fix ${text}` : 'Add the thing' })])
-      },
+      'GET /api/projects/p1/prs': pageOf([pullRequest({ title: 'Add the thing' })]),
     })
     renderAt('/p/p1')
     expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
 
-    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'login' } })
-    fireEvent.change(screen.getByLabelText('Author'), { target: { value: 'alice' } })
-    // One debounced fetch carrying both filters (not one per keystroke).
-    await waitFor(
-      () =>
-        expect(
-          mock.calls.filter((c) => c.url.includes('text=login') && c.url.includes('author=alice')),
-        ).toHaveLength(1),
-      { timeout: 2000 },
+    const input = screen.getByRole('searchbox', { name: 'Filter pull requests' })
+    fireEvent.change(input, { target: { value: 'author:alice is:draft fix login' } })
+    await waitFor(() =>
+      expect(
+        mock.calls.some(
+          (c) =>
+            c.url.includes('author=alice') &&
+            c.url.includes('draft=true') &&
+            decodeURIComponent(c.url).includes('fix+login'),
+        ),
+      ).toBe(true),
     )
-    expect(mock.calls.filter((c) => c.url.includes('text=')).length).toBe(1)
-    expect(await screen.findByRole('link', { name: 'Fix login' })).toBeDefined()
+    // Valid qualifiers are highlighted within the editable query.
+    expect(screen.getByText('author:alice')).toBeDefined()
+    expect(
+      screen.getAllByText('is:draft').some((node) => node.className.includes('text-accent')),
+    ).toBe(true)
   })
 
-  it('draft select applies immediately and Clear resets the filters', async () => {
-    const mock = installMockApi({
-      ...base,
-      'GET /api/projects/p1/prs': pageOf([pullRequest()]),
-    })
-    renderAt('/p/p1')
+  it('highlights valid qualifiers inline and keeps invalid qualifiers plain', async () => {
+    installMockApi({ ...base, 'GET /api/projects/p1/prs': pageOf([pullRequest()]) })
+    renderAt(`/p/p1?q=${encodeURIComponent('author:alice draft:false draft:maybe')}`)
     expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
+    expect(screen.getByText('author:alice').className).toContain('text-accent')
+    expect(screen.getByText('draft:false').className).toContain('text-accent')
+    expect(screen.getByText('draft:maybe').className).not.toContain('text-accent')
+    const input = screen.getByRole('searchbox', { name: 'Filter pull requests' })
+    fireEvent.change(input, { target: { value: 'author:alice' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await waitFor(() => expect(screen.queryByText('draft:false')).toBeNull())
+  })
 
-    fireEvent.change(screen.getByLabelText('Draft state'), { target: { value: 'true' } })
-    await waitFor(() =>
-      expect(mock.calls.filter((c) => c.url.includes('draft=true'))).toHaveLength(1),
-    )
+  it('cancels pending edits when cleared and preserves focus after applying', async () => {
+    const mock = installMockApi({ ...base, 'GET /api/projects/p1/prs': pageOf([pullRequest()]) })
+    renderAt('/p/p1')
+    await screen.findByRole('link', { name: 'Add the thing' })
+    const input = screen.getByRole('searchbox', {
+      name: 'Filter pull requests',
+    }) as HTMLInputElement
+    input.focus()
+    fireEvent.change(input, { target: { value: 'author:alice ' } })
+    await waitFor(() => expect(mock.calls.some((c) => c.url.includes('author=alice'))).toBe(true))
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('author:alice ')
+    fireEvent.change(input, { target: { value: 'author:bob' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Clear query' }))
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(input.value).toBe('')
+    expect(mock.calls.some((c) => c.url.includes('author=bob'))).toBe(false)
+  })
 
+  it('Clear empties the query and returns to the unfiltered list', async () => {
+    const mock = installMockApi({ ...base, 'GET /api/projects/p1/prs': pageOf([pullRequest()]) })
+    renderAt(`/p/p1?q=${encodeURIComponent('author:alice')}`)
+    expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: /Clear/ }))
-    await waitFor(() => {
-      const withFilter = mock.calls.filter(
-        (c) => c.url.includes('draft=') || c.url.includes('text='),
-      )
-      // Only the draft fetch carried a filter; Clear went back to the bare URL.
-      expect(withFilter).toHaveLength(1)
-    })
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('searchbox', { name: 'Filter pull requests' }) as HTMLInputElement).value,
+      ).toBe(''),
+    )
+    await waitFor(() => expect(mock.calls.some((c) => c.url === '/api/projects/p1/prs')).toBe(true))
   })
 
   it('shows the filtered empty state with a Clear filters action', async () => {
-    const empty = false
     installMockApi({
       ...base,
       'GET /api/projects/p1/prs': ({ url }) =>
-        url.searchParams.has('text') ? pageOf([]) : pageOf([pullRequest()]),
+        url.searchParams.get('text') === 'nomatch' ? pageOf([]) : pageOf([pullRequest()]),
     })
-    void empty
-    renderAt('/p/p1?text=nomatch')
+    renderAt('/p/p1?q=nomatch')
     expect(await screen.findByText('No pull requests match these filters.')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()

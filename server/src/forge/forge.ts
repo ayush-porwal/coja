@@ -6,7 +6,6 @@ import type {
   PrListFilter,
   PullRequestDetail,
   PullRequestPage,
-  PullRequestSummary,
   ReplyResponse,
   ReviewComment,
   SubmitReviewRequest,

@@ -8,6 +8,7 @@ import {
   type Project,
   type PullRequestDetail,
   type PullRequestPage,
+  parsePrQuery,
 } from '../shared/api.js'
 import { badRequest, notFound } from './http.js'
 
@@ -59,14 +60,23 @@ export function registerPullRoutes(app: Hono, ctx: ServerContext, deps: { forge:
     const { repo } = resolveProject(ctx, c)
     const parsed = Number.parseInt(c.req.query('page') ?? '1', 10)
     const page = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
+    // `q` is the GitHub-style query string (primary); the discrete params keep
+    // working for API callers that prefer structured input.
+    const q = clean(c.req.query('q'))
     const draftParam = c.req.query('draft')
-    const filter: PrListFilter = {
-      text: clean(c.req.query('text')),
-      author: clean(c.req.query('author')),
-      head: clean(c.req.query('head')),
-      base: clean(c.req.query('base')),
-      ...(draftParam === 'true' ? { draft: true } : draftParam === 'false' ? { draft: false } : {}),
-    }
+    const filter: PrListFilter = q
+      ? parsePrQuery(q)
+      : {
+          text: clean(c.req.query('text')),
+          author: clean(c.req.query('author')),
+          head: clean(c.req.query('head')),
+          base: clean(c.req.query('base')),
+          ...(draftParam === 'true'
+            ? { draft: true }
+            : draftParam === 'false'
+              ? { draft: false }
+              : {}),
+        }
     // An empty filter means 'everything': pass undefined so the forge uses the plain list query.
     const body = await forge.listPullRequestPage(
       repo,

@@ -1359,7 +1359,7 @@ describe('GitHubForge.listPullRequestPage — filters', () => {
   it('uses the search query with the built filter string and maps results with issueCount as total', async () => {
     const fake = fakeGql({
       Viewer: VIEWER,
-      PrSearch: (vars) => ({
+      PrSearch: (_vars) => ({
         search: conn(
           [rawSummary({ id: 'PR_9', number: 9 })],
           { hasNextPage: false, endCursor: null },

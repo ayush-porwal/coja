@@ -470,6 +470,75 @@ export function isEmptyFilter(filter: PrListFilter): boolean {
   )
 }
 
+export interface PrQueryToken {
+  raw: string
+  start: number
+  end: number
+  field?: 'author' | 'head' | 'base' | 'draft' | 'scope'
+  value?: string | boolean
+}
+
+/** Shared lexical analysis keeps highlighting and applied filters in agreement. */
+export function tokenizePrQuery(raw: string): PrQueryToken[] {
+  return Array.from(raw.matchAll(/(?:[^\s"]|"(?:\\.|[^"\\])*"?)+/g), (match) => {
+    const token: PrQueryToken = {
+      raw: match[0],
+      start: match.index,
+      end: match.index + match[0].length,
+    }
+    const qualifier = /^(author|head|base|draft|is):(.+)$/i.exec(token.raw)
+    if (!qualifier) return token
+    const key = qualifier[1]?.toLowerCase()
+    const encoded = qualifier[2] ?? ''
+    if (encoded.includes('"') && !/^"(?:\\.|[^"\\])*"$/.test(encoded)) return token
+    const value = encoded.startsWith('"') ? encoded.slice(1, -1).replace(/\\(.)/g, '$1') : encoded
+    if (!value.trim()) return token
+    if (key === 'author' || key === 'head' || key === 'base') {
+      token.field = key
+      token.value = value
+    } else if (key === 'draft' && /^(true|false)$/i.test(value)) {
+      token.field = 'draft'
+      token.value = value.toLowerCase() === 'true'
+    } else if (key === 'is' && /^(draft|ready)$/i.test(value)) {
+      token.field = 'draft'
+      token.value = value.toLowerCase() === 'draft'
+    } else if (key === 'is' && /^(open|pr)$/i.test(value)) {
+      // This screen always lists open pull requests, including drafts.
+      token.field = 'scope'
+    }
+    return token
+  })
+}
+
+/** Parse supported qualifiers; unknown or incomplete tokens remain title text. */
+export function parsePrQuery(raw: string): PrListFilter {
+  const filter: PrListFilter = {}
+  const text: string[] = []
+  for (const token of tokenizePrQuery(raw)) {
+    if (token.field === 'draft') filter.draft = token.value as boolean
+    else if (token.field === 'author' || token.field === 'head' || token.field === 'base') {
+      filter[token.field] = token.value as string
+    } else if (!token.field) text.push(token.raw)
+  }
+  if (text.length) filter.text = text.join(' ')
+  return filter
+}
+
+/**
+ * The canonical display form of a filter — the same grammar `parsePrQuery`
+ * consumes — so the UI can rebuild an input string from parsed parts.
+ */
+export function formatPrQuery(filter: PrListFilter): string {
+  const parts: string[] = []
+  const encode = (value: string) => (/[\s"\\]/.test(value) ? JSON.stringify(value) : value)
+  if (filter.author) parts.push(`author:${encode(filter.author)}`)
+  if (filter.head) parts.push(`head:${encode(filter.head)}`)
+  if (filter.base) parts.push(`base:${encode(filter.base)}`)
+  if (filter.draft !== undefined) parts.push(`draft:${filter.draft}`)
+  if (filter.text) parts.push(filter.text)
+  return parts.join(' ')
+}
+
 /** One page of a project's open PR list (GitHub-style pagination). */
 export interface PullRequestPage {
   items: PullRequestSummary[]

@@ -99,6 +99,45 @@ describe('pull request routes', () => {
     )
   })
 
+  it('GET prs maps filter params and the q query string onto the forge call', async () => {
+    const { app, forge, project } = setup()
+    forge.listPullRequestPage.mockResolvedValue({
+      items: [],
+      page: 1,
+      perPage: 100,
+      total: 0,
+      totalPages: 1,
+    })
+
+    // Discrete params.
+    await app.request(
+      `${API_ROUTES.prs(project.id)}?text=fix+login&author=alice&head=feat/x&draft=true`,
+    )
+    expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
+      { owner: 'acme', repo: 'widgets' },
+      1,
+      { text: 'fix login', author: 'alice', head: 'feat/x', draft: true },
+    )
+
+    // The GitHub-style query string parses into the same filter (page resets).
+    await app.request(
+      `${API_ROUTES.prs(project.id)}?page=3&q=${encodeURIComponent('author:alice is:draft fix login')}`,
+    )
+    expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
+      { owner: 'acme', repo: 'widgets' },
+      3,
+      { text: 'fix login', author: 'alice', draft: true },
+    )
+
+    // Empty filter params mean "everything" (undefined, not an empty object).
+    await app.request(`${API_ROUTES.prs(project.id)}?text=&author=`)
+    expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
+      { owner: 'acme', repo: 'widgets' },
+      1,
+      undefined,
+    )
+  })
+
   it('GET pr returns the detail', async () => {
     const { app, forge, project } = setup()
     const detail = {

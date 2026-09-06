@@ -1,9 +1,11 @@
-import type {
-  Actor,
-  MyReviewState,
-  PrListFilter,
-  PullRequestPage,
-  PullRequestSummary,
+import {
+  type Actor,
+  type MyReviewState,
+  type PrListFilter,
+  type PullRequestPage,
+  type PullRequestSummary,
+  parsePrQuery,
+  tokenizePrQuery,
 } from '@coja/shared/api'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
@@ -40,40 +42,26 @@ export function PullRequestListScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
   const parsed = Number.parseInt(searchParams.get('page') ?? '1', 10)
   const requested = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
-  // Filters live in the URL like the page number, so a filtered view is
-  // shareable and survives reload/back.
-  const filter: PrListFilter = {
-    text: param(searchParams, 'text'),
-    author: param(searchParams, 'author'),
-    head: param(searchParams, 'head'),
-    base: param(searchParams, 'base'),
-    ...(searchParams.get('draft') === 'true'
-      ? { draft: true }
-      : searchParams.get('draft') === 'false'
-        ? { draft: false }
-        : {}),
-  }
+  // Filters live in the URL as one GitHub-style query string (?q=author:alice
+  // fix login), so a filtered view is shareable and survives reload/back.
+  // Anything that isn't a known qualifier is free text: title tokens, or a
+  // bare hex SHA that GitHub matches by commit.
+  const query = param(searchParams, 'q')
+  const filter: PrListFilter = query ? parsePrQuery(query) : {}
   const filtered = !isPrFilterEmpty(filter)
   const prs = usePullRequests(projectId, requested, filter)
   const data = prs.data as PullRequestPage | undefined
 
-  /** Filter params as a record (shared by applyFilter/setPage). */
-  const filterParams = (f: PrListFilter): Record<string, string> => {
-    const params: Record<string, string> = {}
-    if (f.text) params.text = f.text
-    if (f.author) params.author = f.author
-    if (f.head) params.head = f.head
-    if (f.base) params.base = f.base
-    if (f.draft !== undefined) params.draft = String(f.draft)
-    return params
+  // Any filter change restarts at page 1.
+  const applyQuery = (raw: string) => {
+    const trimmed = raw.trim()
+    setSearchParams(trimmed ? { q: trimmed } : {})
   }
 
-  // Any filter change restarts at page 1.
-  const applyFilter = (next: PrListFilter) => setSearchParams(filterParams(next))
-
   const setPage = (next: number) => {
-    const params = filterParams(filter)
+    const params: Record<string, string> = {}
     if (next > 1) params.page = String(next)
+    if (query) params.q = query
     setSearchParams(params)
   }
 
@@ -115,7 +103,7 @@ export function PullRequestListScreen() {
         />
       )}
 
-      <FilterBar filter={filter} onApply={applyFilter} />
+      <FilterBar query={query ?? ''} onApply={applyQuery} />
 
       <div className="mt-4">
         {prs.isPending ? (
@@ -134,7 +122,7 @@ export function PullRequestListScreen() {
                 <p>No pull requests match these filters.</p>
                 <button
                   type="button"
-                  onClick={() => applyFilter({})}
+                  onClick={() => applyQuery('')}
                   className="mt-2 cursor-pointer rounded-md border border-edge px-2.5 py-1 text-xs font-medium text-ink hover:bg-hover"
                 >
                   Clear filters
@@ -411,133 +399,151 @@ function RefreshIcon() {
   )
 }
 
+/** One editable query with syntax highlighting driven by the shared parser. */
+function FilterBar({ query, onApply }: { query: string; onApply(raw: string): void }) {
+  const [draft, setDraft] = useState(query)
+  const [previousQuery, setPreviousQuery] = useState(query)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const overlay = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLInputElement>(null)
+  const composing = useRef(false)
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current)
+  }
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current)
+    },
+    [],
+  )
+  const edit = (value: string) => {
+    cancel()
+    setDraft(value)
+    if (!composing.current)
+      timer.current = setTimeout(() => {
+        if (value.trim() !== query) onApply(value)
+      }, 300)
+  }
+  if (previousQuery !== query) {
+    cancel()
+    setPreviousQuery(query)
+    // Keep whitespace and the caret when acknowledging our own edit.
+    if (draft.trim() !== query) setDraft(query)
+  }
+  const tokens = tokenizePrQuery(draft)
+  const highlights = []
+  let offset = 0
+  for (const token of tokens) {
+    highlights.push(<span key={`space-${token.start}`}>{draft.slice(offset, token.start)}</span>)
+    highlights.push(
+      <span
+        key={token.start}
+        className={token.field ? 'rounded-sm bg-accent-soft text-accent' : undefined}
+      >
+        {token.raw}
+      </span>,
+    )
+    offset = token.end
+  }
+  highlights.push(<span key="end">{draft.slice(offset)}</span>)
+
+  return (
+    <form
+      className="mt-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        cancel()
+        if (draft.trim() !== query) onApply(draft)
+      }}
+    >
+      <div className="flex min-w-0 items-center gap-2 rounded-lg border border-edge bg-card px-3 py-2 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
+        <SearchIcon />
+        <div className="relative min-w-0 flex-1">
+          <div
+            ref={overlay}
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre font-mono text-sm leading-6 text-ink"
+          >
+            {highlights}
+          </div>
+          <input
+            ref={input}
+            type="search"
+            value={draft}
+            onChange={(event) => edit(event.target.value)}
+            onScroll={(event) => {
+              if (overlay.current) overlay.current.scrollLeft = event.currentTarget.scrollLeft
+            }}
+            onCompositionStart={() => {
+              composing.current = true
+              cancel()
+            }}
+            onCompositionEnd={(event) => {
+              composing.current = false
+              edit(event.currentTarget.value)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                cancel()
+                setDraft(query)
+              }
+            }}
+            aria-label="Filter pull requests"
+            aria-describedby="pr-filter-help"
+            placeholder="Filter pull requests…"
+            spellCheck={false}
+            autoComplete="off"
+            className="relative block h-6 w-full min-w-0 appearance-none border-0 bg-transparent p-0 font-mono text-sm leading-6 text-transparent caret-ink outline-none placeholder:text-faint [&::-webkit-search-cancel-button]:appearance-none"
+          />
+        </div>
+        {draft && (
+          <button
+            type="button"
+            aria-label="Clear query"
+            onClick={() => {
+              cancel()
+              setDraft('')
+              onApply('')
+              input.current?.focus()
+            }}
+            className={cn(
+              'shrink-0 cursor-pointer rounded px-1 text-muted hover:text-ink',
+              focusRing,
+            )}
+          >
+            ×
+          </button>
+        )}
+        <button
+          type="submit"
+          className={cn(
+            'shrink-0 cursor-pointer rounded border border-edge px-2 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink',
+            focusRing,
+          )}
+        >
+          Search
+        </button>
+      </div>
+      <p id="pr-filter-help" className="mt-2 text-xs leading-5 text-muted">
+        Search titles or a commit SHA. Filters: <code>author:login</code>, <code>head:branch</code>,{' '}
+        <code>base:branch</code>, <code>is:draft</code>, <code>is:ready</code>,{' '}
+        <code>draft:true/false</code>.
+      </p>
+    </form>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-4 shrink-0 text-muted">
+      <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function param(searchParams: URLSearchParams, key: string): string | undefined {
   const value = searchParams.get(key)?.trim()
   return value ? value : undefined
-}
-
-/** Debounce shared by the filter bar's text inputs. */
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), ms)
-    return () => clearTimeout(timer)
-  }, [value, ms])
-  return debounced
-}
-
-/**
- * GitHub-style filter bar: title/SHA text, author, head branch, draft state.
- * Inputs debounce into the URL (`onApply`), which refetches page 1. Draft is
- * a three-way select; the whole bar highlights while a filter is active.
- */
-function FilterBar({
-  filter,
-  onApply,
-}: {
-  filter: PrListFilter
-  onApply(next: PrListFilter): void
-}) {
-  const [text, setText] = useState(filter.text ?? '')
-  const [author, setAuthor] = useState(filter.author ?? '')
-  const [head, setHead] = useState(filter.head ?? '')
-  const debouncedText = useDebounced(text, 300)
-  const debouncedAuthor = useDebounced(author, 300)
-  const debouncedHead = useDebounced(head, 300)
-
-  const draftNext = (draft: boolean | undefined) => ({
-    text: debouncedText.trim() || undefined,
-    author: debouncedAuthor.trim() || undefined,
-    head: debouncedHead.trim() || undefined,
-    base: filter.base,
-    draft,
-  })
-
-  // Push debounced edits once; resync inputs when the URL changes externally
-  // (Clear buttons, back/forward).
-  const key = `${debouncedText}|${debouncedAuthor}|${debouncedHead}|${filter.base ?? ''}|${filter.draft ?? ''}`
-  const lastPushed = useRef(key)
-  useEffect(() => {
-    if (lastPushed.current === key) return
-    lastPushed.current = key
-    onApply(draftNext(filter.draft))
-  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    setText(filter.text ?? '')
-    setAuthor(filter.author ?? '')
-    setHead(filter.head ?? '')
-  }, [filter.text, filter.author, filter.head])
-
-  const active = !isPrFilterEmpty(filter)
-  return (
-    <div
-      className={`mt-4 flex flex-wrap items-center gap-2 rounded-lg border px-2 py-1.5 ${
-        active ? 'border-accent bg-accent-soft' : 'border-edge bg-card'
-      }`}
-    >
-      <FilterInput
-        label="Search"
-        placeholder="Title text or commit SHA…"
-        value={text}
-        onChange={setText}
-      />
-      <FilterInput label="Author" placeholder="login" value={author} onChange={setAuthor} />
-      <FilterInput label="Branch" placeholder="head branch" value={head} onChange={setHead} />
-      <select
-        aria-label="Draft state"
-        title="Draft state"
-        value={filter.draft === undefined ? '' : String(filter.draft)}
-        onChange={(event) => {
-          const draft = event.target.value === '' ? undefined : event.target.value === 'true'
-          lastPushed.current = `${debouncedText}|${debouncedAuthor}|${debouncedHead}|${filter.base ?? ''}|${draft ?? ''}`
-          onApply(draftNext(draft))
-        }}
-        className="h-7 cursor-pointer rounded-md border border-edge bg-card px-1.5 text-xs text-ink"
-      >
-        <option value="">Any draft state</option>
-        <option value="true">Drafts</option>
-        <option value="false">Ready</option>
-      </select>
-      {active && (
-        <button
-          type="button"
-          onClick={() => {
-            lastPushed.current = '|| || |'
-            setText('')
-            setAuthor('')
-            setHead('')
-            onApply({})
-          }}
-          className="cursor-pointer rounded-md px-1.5 py-1 text-xs font-medium text-muted hover:text-ink"
-        >
-          Clear ×
-        </button>
-      )}
-    </div>
-  )
-}
-
-function FilterInput({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string
-  placeholder: string
-  value: string
-  onChange(value: string): void
-}) {
-  return (
-    <label className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted sm:min-w-40">
-      <span className="shrink-0">{label}</span>
-      <input
-        type="search"
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-7 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-2 text-xs text-ink outline-none placeholder:text-faint focus:border-accent"
-      />
-    </label>
-  )
 }
