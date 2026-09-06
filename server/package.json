@@ -1,5 +1,5 @@
 {
-  "name": "coja",
+  "name": "@ayushporwal/coja",
   "version": "0.0.1",
   "description": "Local code review for GitHub pull requests, with an AI sidepanel that helps the human reviewer",
   "type": "module",
@@ -11,6 +11,9 @@
     "dist",
     "public"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.13"
   },
