@@ -48,6 +48,18 @@ export function themeToCssProperties(
   for (const [key, variable] of Object.entries(CHROME_VARIABLES) as [string, string][]) {
     styles[variable] = variant[key as keyof CojaPalette['light']]
   }
+  // The brand fill is not always legible as small text (especially Mulberry
+  // dark). Keep fill and foreground roles separate without losing the hue.
+  styles['--coja-accent-text'] =
+    `color-mix(in srgb, ${variant.accent} ${appearance === 'dark' ? 38 : 65}%, ${variant.ink})`
+  // Status fills also need their own foreground pairing for solid actions.
+  for (const role of ['ok', 'danger'] as const) {
+    styles[`--coja-${role}-button`] =
+      appearance === 'dark'
+        ? variant[role]
+        : `color-mix(in srgb, ${variant[role]} 80%, ${variant.ink})`
+  }
+  styles['--coja-status-button-ink'] = appearance === 'dark' ? 'oklch(0.15 0 0)' : 'oklch(1 0 0)'
   Object.assign(styles, diffVariables(palette, appearance))
   return styles as CSSProperties
 }

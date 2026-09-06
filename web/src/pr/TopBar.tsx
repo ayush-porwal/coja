@@ -51,7 +51,7 @@ export function TopBar({
 }: TopBarProps) {
   const pendingCount = detail?.pendingReview?.commentCount ?? 0
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-edge border-b bg-chrome px-2.5 text-sm">
+    <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-edge border-b bg-chrome px-2.5 py-2 text-sm">
       <PanelToggles
         treeOpen={treeOpen}
         onToggleTree={onToggleTree}
@@ -71,7 +71,7 @@ export function TopBar({
         ← PRs
       </Link>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
+      <div className="order-first flex min-w-0 basis-full items-center gap-2 px-1 lg:order-none lg:flex-1 lg:basis-0">
         <h1 className="truncate font-semibold text-ink" title={detail?.title}>
           {detail?.title ?? 'Loading pull request…'}
         </h1>
@@ -83,9 +83,11 @@ export function TopBar({
         )}
         {detail && (
           <>
-            <span className="flex shrink-0 items-center gap-1.5 text-muted">
+            <span className="hidden max-w-36 min-w-0 items-center gap-1.5 text-muted sm:flex">
               <Avatar actor={detail.author} size={18} />
-              {detail.author.login}
+              <span className="truncate" title={detail.author.login}>
+                {detail.author.login}
+              </span>
             </span>
             <span className="hidden min-w-0 items-center gap-1 truncate rounded bg-active px-1.5 py-0.5 font-mono text-xs text-muted md:flex">
               <span className="truncate">{detail.headRefName}</span>
@@ -98,7 +100,7 @@ export function TopBar({
               href={detail.url}
               target="_blank"
               rel="noreferrer"
-              className="shrink-0 text-xs text-accent hover:underline"
+              className="shrink-0 text-xs text-accent-text hover:underline"
             >
               GitHub ↗
             </a>
@@ -181,7 +183,7 @@ function FetchPill({ status, error, onRetry }: FetchPillProps) {
     const message = error?.message ?? status?.error ?? 'Fetch failed'
     return (
       <span
-        className={`${pillBase} border-danger max-w-[28rem] bg-danger-soft text-danger`}
+        className={`${pillBase} border-danger max-w-[min(28rem,calc(100vw-2rem))] bg-danger-soft text-danger`}
         role="status"
       >
         <span className="truncate" title={message}>

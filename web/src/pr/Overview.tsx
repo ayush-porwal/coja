@@ -99,7 +99,7 @@ function CommitRow({ commit }: { commit: Commit }) {
         href={commit.url}
         target="_blank"
         rel="noreferrer"
-        className="shrink-0 font-mono text-xs text-accent hover:underline"
+        className="shrink-0 font-mono text-xs text-accent-text hover:underline"
       >
         {commit.abbreviatedOid}
       </a>

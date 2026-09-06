@@ -8,7 +8,7 @@ const tones: Record<BadgeTone, string> = {
   green: 'bg-ok-soft text-ok ring-ok',
   red: 'bg-danger-soft text-danger ring-danger',
   amber: 'bg-caution-soft text-caution ring-caution',
-  indigo: 'bg-accent-soft text-accent ring-accent',
+  indigo: 'bg-accent-soft text-accent-text ring-accent',
 }
 
 export interface BadgeProps extends ComponentProps<'span'> {

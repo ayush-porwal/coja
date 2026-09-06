@@ -1,6 +1,7 @@
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  useEffect,
   useRef,
   useState,
 } from 'react'
@@ -36,6 +37,8 @@ export function PanelResizeHandle({
 }: PanelResizeHandleProps) {
   const handle = useRef<HTMLDivElement>(null)
   const [dragging, setDragging] = useState(false)
+  const stopDrag = useRef<(() => void) | null>(null)
+  useEffect(() => () => stopDrag.current?.(), [])
 
   const clamp = (candidate: number) => Math.min(max, Math.max(min, candidate))
 
@@ -45,19 +48,29 @@ export function PanelResizeHandle({
     if (!row) return
     const rowRect = row.getBoundingClientRect()
     event.preventDefault()
+    stopDrag.current?.()
     setDragging(true)
     document.body.classList.add('coja-resizing')
     const onMove = (move: PointerEvent) => {
       onResize(clamp(side === 'left' ? move.clientX - rowRect.left : rowRect.right - move.clientX))
     }
-    const onUp = () => {
-      setDragging(false)
+    const cleanup = () => {
       document.body.classList.remove('coja-resizing')
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      window.removeEventListener('blur', onUp)
+      stopDrag.current = null
     }
+    const onUp = () => {
+      cleanup()
+      setDragging(false)
+    }
+    stopDrag.current = cleanup
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    window.addEventListener('blur', onUp)
   }
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {

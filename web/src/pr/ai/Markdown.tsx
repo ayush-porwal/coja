@@ -19,7 +19,7 @@ function urlTransform(url: string): string {
 }
 
 const citeClass =
-  'inline cursor-pointer rounded-sm px-0.5 font-mono text-[0.9em] text-accent underline decoration-dotted hover:bg-accent-soft hover:decoration-solid'
+  'inline cursor-pointer rounded-sm px-0.5 font-mono text-[0.9em] text-accent-text underline decoration-dotted hover:bg-accent-soft hover:decoration-solid'
 
 const imageClass = 'rounded-sm bg-active px-1 font-mono text-[0.85em] text-muted'
 

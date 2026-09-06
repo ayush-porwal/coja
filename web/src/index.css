@@ -152,12 +152,16 @@
   --color-edge-strong: var(--coja-edge-strong);
   --color-focus: var(--coja-focus);
   --color-accent: var(--coja-accent);
+  --color-accent-text: var(--coja-accent-text);
   --color-accent-ink: var(--coja-accent-ink);
   --color-accent-soft: var(--coja-accent-soft);
   --color-ok: var(--coja-ok);
   --color-ok-soft: var(--coja-ok-soft);
   --color-danger: var(--coja-danger);
   --color-danger-soft: var(--coja-danger-soft);
+  --color-ok-button: var(--coja-ok-button);
+  --color-danger-button: var(--coja-danger-button);
+  --color-status-button-ink: var(--coja-status-button-ink);
   --color-caution: var(--coja-caution);
   --color-caution-soft: var(--coja-caution-soft);
   --color-code: var(--coja-code);
@@ -227,4 +231,25 @@ body.coja-resizing {
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Modal entrance: a quiet fade + rise. Static under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .coja-modal-overlay {
+    animation: coja-modal-fade 140ms ease-out;
+  }
+  .coja-modal-card {
+    animation: coja-modal-pop 140ms ease-out;
+  }
+}
+@keyframes coja-modal-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes coja-modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
 }

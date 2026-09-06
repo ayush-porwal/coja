@@ -97,7 +97,7 @@ it('adds a custom provider: model list gating, payload, configured state', async
   })
   renderAt('/setup')
 
-  await screen.findByRole('heading', { name: 'Set up coja' })
+  await screen.findByRole('heading', { name: 'Settings' })
   fireEvent.click(screen.getByRole('button', { name: 'Add model provider' }))
 
   // The provider cannot be added without a model.
@@ -127,7 +127,7 @@ it('adds a custom provider: model list gating, payload, configured state', async
 it('rejects a bad base URL inline', async () => {
   installMockApi({ 'GET /api/setup/status': setupStatus({}) })
   renderAt('/setup')
-  await screen.findByRole('heading', { name: 'Set up coja' })
+  await screen.findByRole('heading', { name: 'Settings' })
   fireEvent.click(screen.getByRole('button', { name: 'Add model provider' }))
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'X' } })
   fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'ftp://x' } })
@@ -204,7 +204,7 @@ it('fetch model list merges the endpoint models into the editable chips', async 
     }),
   })
   renderAt('/setup')
-  await screen.findByRole('heading', { name: 'Set up coja' })
+  await screen.findByRole('heading', { name: 'Settings' })
 
   fireEvent.click(screen.getByRole('button', { name: 'Add model provider' }))
   // No base URL yet: the fetch is gated.
@@ -226,4 +226,19 @@ it('fetch model list merges the endpoint models into the editable chips', async 
   // The fetched list is editable: a chip can be removed again.
   fireEvent.click(screen.getByRole('button', { name: 'Remove model deepseek-reasoner' }))
   expect(screen.queryByText('deepseek-reasoner')).toBeNull()
+})
+
+it('shows configured settings and returns home without submitting setup again', async () => {
+  const mock = installMockApi({
+    'GET /api/setup/status': setupStatus({}),
+    'GET /api/projects': [],
+  })
+  renderAt('/setup')
+  await screen.findByRole('heading', { name: 'Settings' })
+  expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+  const home = screen.getByRole('link', { name: 'Back to projects' })
+  fireEvent.click(home)
+  await screen.findByRole('heading', { name: 'Projects' })
+  expect(currentPath()).toBe('/')
+  expect(mock.callsTo('POST', '/api/setup/complete')).toHaveLength(0)
 })

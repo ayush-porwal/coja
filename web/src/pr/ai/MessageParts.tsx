@@ -162,7 +162,9 @@ export function ToolCallCard({ part }: ToolCallCardProps) {
               ✗
             </span>
           )}
-          {!running && !done && !failed && <span className="shrink-0 text-muted">{part.state}</span>}
+          {!running && !done && !failed && (
+            <span className="shrink-0 text-muted">{part.state}</span>
+          )}
           <span className="shrink-0 text-faint">{done ? 'Result' : 'Input'}</span>
           <svg
             aria-hidden="true"
@@ -194,7 +196,12 @@ export function ToolCallCard({ part }: ToolCallCardProps) {
 
 function ToolIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-3.5 shrink-0 text-muted">
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      className="size-3.5 shrink-0 text-muted"
+    >
       <path
         d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
         stroke="currentColor"

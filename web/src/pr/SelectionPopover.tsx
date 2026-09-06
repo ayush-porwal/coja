@@ -25,10 +25,10 @@ export function SelectionPopover({
     <div
       role="toolbar"
       aria-label="Selection actions"
-      className="absolute top-3 left-1/2 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-edge bg-card px-3 py-1.5 text-sm shadow-lg"
+      className="absolute top-3 left-1/2 z-20 flex flex-wrap max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-edge bg-card px-3 py-1.5 text-sm shadow-lg"
     >
       {/* The only shrinking element: a long path truncates so the buttons never do. */}
-      <span className="min-w-0 truncate font-mono text-xs text-muted" title={label}>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted" title={label}>
         {label}
       </span>
       <button
@@ -56,7 +56,7 @@ export function SelectionPopover({
         ×
       </button>
       {error && (
-        <span role="alert" className="shrink-0 whitespace-nowrap text-xs text-danger">
+        <span role="alert" className="basis-full break-words text-xs text-danger">
           {error}
         </span>
       )}

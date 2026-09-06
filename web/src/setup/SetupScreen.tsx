@@ -7,7 +7,7 @@ import type {
 } from '@coja/shared/api'
 import { type UseQueryResult, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import {
   useAddCustomProvider,
   useChatGptConnectStatus,
@@ -36,6 +36,7 @@ export function SetupScreen() {
 
   const data = status.data
   const ghOk = data?.gh.ok === true
+  const configured = data?.setupComplete === true
 
   const finish = () => {
     setFinishing('continue')
@@ -48,10 +49,15 @@ export function SetupScreen() {
   return (
     <AppShell>
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-xl font-semibold tracking-tight">Set up coja</h1>
+        <h1 className="text-xl font-semibold tracking-tight">
+          {configured ? 'Settings' : 'Set up coja'}
+        </h1>
         <p className="mt-1 text-sm text-muted">
-          Two checks, one required. Reviewing works without AI — the only thing coja needs is a
-          GitHub sign-in through the <code className="font-mono">gh</code> CLI.
+          {configured ? (
+            'Manage your connections and make coja feel at home.'
+          ) : (
+            <>Connect GitHub to start reviewing. AI is optional, and you can configure it later.</>
+          )}
         </p>
 
         <ol className="mt-6 rounded-lg border border-edge bg-card px-2 py-2">
@@ -65,14 +71,13 @@ export function SetupScreen() {
         <section className="mt-6">
           <h2 className="text-sm font-semibold">Theme</h2>
           <p className="mt-1 mb-3 text-sm text-muted">
-            One look across the app — chrome, diffs, file tree and chat. Palettes ported from t3code
-            (MIT).
+            Choose a palette and appearance for your workspace, diffs, and chat.
           </p>
           <ThemePicker />
         </section>
 
         <section className="mt-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">Typography</h2>
             <Button size="sm" variant="ghost" onClick={resetTypography}>
               Reset typography defaults
@@ -91,19 +96,25 @@ export function SetupScreen() {
               {complete.error.message}
             </p>
           )}
-          {data && !ghOk && (
+          {data && !configured && !ghOk && (
             <p className="mr-auto text-sm text-muted">
               Sign in with <code className="font-mono">gh</code> to continue.
             </p>
           )}
-          <Button
-            variant="primary"
-            disabled={!ghOk || complete.isPending}
-            loading={complete.isPending && finishing === 'continue'}
-            onClick={finish}
-          >
-            Continue
-          </Button>
+          {configured ? (
+            <Link to="/" className={`${linkClass} rounded text-sm`}>
+              Back to projects
+            </Link>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={!ghOk || complete.isPending}
+              loading={complete.isPending && finishing === 'continue'}
+              onClick={finish}
+            >
+              Continue
+            </Button>
+          )}
         </footer>
       </div>
     </AppShell>
@@ -251,10 +262,10 @@ function ChatGptRow({ status }: { status: SetupStatus | undefined }) {
       </p>
 
       {chatgpt?.connected ? (
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <Glyph kind="ok" small />
           <span className="font-medium">Connected</span>
-          {chatgpt.email && <span className="text-muted">{chatgpt.email}</span>}
+          {chatgpt.email && <span className="min-w-0 break-all text-muted">{chatgpt.email}</span>}
           {chatgpt.plan && <Badge>{chatgpt.plan}</Badge>}
           <Button
             size="sm"
@@ -402,10 +413,15 @@ function CustomProviderItem({
   onRemove(): void
 }) {
   return (
-    <li className="flex items-center gap-2 text-sm">
+    <li className="flex flex-wrap items-center gap-2 text-sm">
       <Glyph kind="ok" small />
-      <span className="font-medium">{provider.name}</span>
-      <span className="min-w-0 truncate font-mono text-xs text-muted">{provider.baseUrl}</span>
+      <span className="max-w-full break-words font-medium">{provider.name}</span>
+      <span
+        className="min-w-0 flex-1 truncate font-mono text-xs text-muted"
+        title={provider.baseUrl}
+      >
+        {provider.baseUrl}
+      </span>
       <span className="shrink-0 text-xs text-muted">
         {provider.models.length} {provider.models.length === 1 ? 'model' : 'models'}
         {provider.hasKey ? ' · key stored' : ''}
@@ -602,17 +618,19 @@ function AddProviderForm({
         ) : (
           <ul className="flex flex-wrap gap-1.5">
             {models.map((model) => (
-              <li key={model.id}>
+              <li key={model.id} className="max-w-full">
                 <span
-                  className="inline-flex items-center gap-1.5 rounded-full bg-active py-0.5 pr-1 pl-2.5 font-mono text-xs text-ink"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-active py-0.5 pr-1 pl-2.5 font-mono text-xs text-ink"
                   title={model.label ? model.id : undefined}
                 >
-                  {model.label ?? model.id}
-                  {model.label && <span className="text-muted">{model.id}</span>}
+                  <span className="min-w-0 truncate" title={model.id}>
+                    {model.label ?? model.id}
+                  </span>
+                  {model.label && <span className="min-w-0 truncate text-muted">{model.id}</span>}
                   <button
                     type="button"
                     aria-label={`Remove model ${model.id}`}
-                    className="rounded px-1 text-muted hover:bg-hover hover:text-ink"
+                    className="shrink-0 rounded px-1 text-muted hover:bg-hover hover:text-ink"
                     onClick={() => setModels((current) => current.filter((m) => m.id !== model.id))}
                   >
                     ×

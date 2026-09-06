@@ -150,7 +150,7 @@ export function Sidebar({
         onClick={onSelectOverview}
         aria-current={isOverview ? 'page' : undefined}
         className={`flex items-center justify-between gap-2 border-edge border-b px-3 py-2 text-left font-medium text-sm border-edge ${
-          isOverview ? 'bg-accent-soft text-accent' : 'text-ink hover:bg-hover'
+          isOverview ? 'bg-accent-soft text-accent-text' : 'text-ink hover:bg-hover'
         }`}
       >
         <span>Overview</span>

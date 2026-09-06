@@ -44,7 +44,7 @@ export function PullRequestScreen() {
       <main className="flex h-dvh items-center justify-center bg-canvas p-6 text-sm text-muted">
         <p>
           Invalid pull request route.{' '}
-          <Link to="/" className="text-accent underline">
+          <Link to="/" className="text-accent-text underline">
             Back to projects
           </Link>
         </p>

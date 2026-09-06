@@ -40,12 +40,15 @@ export const DIFF_FONT_SIZE = 12.5
  * Diff metrics derived from the user's code font size. All row math scales
  * with the font so virtualized rows never overlap when typography changes.
  */
-export function diffMetricsForFontSize(fontSize: number): {
+export function diffMetricsForFontSize(
+  fontSize: number,
+  lineHeightRatio = 1.6,
+): {
   lineHeight: number
   itemMetrics: VirtualFileMetrics
   cssVariables: CSSProperties
 } {
-  const lineHeight = Math.round(fontSize * 1.6)
+  const lineHeight = Math.round(fontSize * lineHeightRatio)
   return {
     lineHeight,
     itemMetrics: {

@@ -12,8 +12,8 @@
 .coja-diff {
   --diffs-font-size: 12.5px;
   --diffs-tab-size: 4;
-  --diffs-font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --diffs-header-font-family: ui-sans-serif, system-ui, sans-serif;
+  --diffs-font-family: var(--coja-code-font, ui-monospace, monospace);
+  --diffs-header-font-family: var(--coja-ui-font, system-ui, sans-serif);
 }
 
 .coja-markdown {
@@ -67,11 +67,12 @@
   margin-top: 0.15rem;
 }
 .coja-markdown a {
-  color: var(--coja-accent, #2563eb);
+  color: var(--coja-accent-text, #2563eb);
   text-decoration: underline;
 }
 .coja-markdown code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--coja-code-font, ui-monospace, monospace);
+  font-variant-ligatures: var(--coja-code-ligatures, normal);
   font-size: 0.85em;
   background: color-mix(in lab, var(--coja-ink, #18181b) 8%, transparent);
   padding: 0.1em 0.3em;
@@ -82,8 +83,8 @@
   padding: 0.75rem;
   border-radius: 6px;
   overflow-x: auto;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  font-size: var(--coja-code-size, 12.5px);
+  line-height: var(--coja-code-line-height, 1.5);
 }
 .coja-markdown pre code {
   background: none;

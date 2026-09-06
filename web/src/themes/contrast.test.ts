@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { themeToCssProperties } from './apply'
 import { type CojaPalette, PALETTES, type ThemeAppearance } from './palettes'
 
 /**
@@ -66,6 +67,52 @@ function contrast(a: Rgb, b: Rgb): number {
   const [hi, lo] = la >= lb ? [la, lb] : [lb, la]
   return (hi + 0.05) / (lo + 0.05)
 }
+
+/** Resolve the palette's sRGB mixtures as well as its literal colors. */
+function resolveColor(value: string): Rgb {
+  const mix = /^color-mix\(in srgb, (oklch\([^)]+\)) (\d+)%, (oklch\([^)]+\))\)$/.exec(value)
+  if (!mix?.[1] || !mix[3]) return oklchToSrgb(value)
+  return mixSrgb(oklchToSrgb(mix[1]), oklchToSrgb(mix[3]), Number(mix[2]))
+}
+
+describe('chrome action contrast per theme', () => {
+  for (const palette of PALETTES) {
+    for (const appearance of ['light', 'dark'] as const) {
+      it(`${palette.id} ${appearance}: links, selected labels and action buttons are readable`, () => {
+        const v = palette[appearance]
+        const css = themeToCssProperties(palette, appearance) as Record<string, string>
+        const cssColor = (name: string): string => {
+          const value = css[name]
+          if (!value) throw new Error(`theme is missing ${name}`)
+          return value
+        }
+        const text = resolveColor(cssColor('--coja-accent-text'))
+        for (const surface of [
+          'canvas',
+          'card',
+          'panel',
+          'overlay',
+          'active',
+          'accentSoft',
+        ] as const) {
+          expect(
+            contrast(text, oklchToSrgb(v[surface])),
+            `accent text on ${surface}`,
+          ).toBeGreaterThanOrEqual(4.5)
+        }
+        for (const role of ['ok', 'danger']) {
+          expect(
+            contrast(
+              resolveColor(cssColor(`--coja-${role}-button`)),
+              resolveColor(cssColor('--coja-status-button-ink')),
+            ),
+            role,
+          ).toBeGreaterThanOrEqual(4.5)
+        }
+      })
+    }
+  }
+})
 
 /** The changed-row fills, from apply.ts's t3code formulas. */
 function fillsFor(palette: CojaPalette, appearance: ThemeAppearance) {

@@ -25,6 +25,20 @@ describe('diffItemMetrics', () => {
     expect(bigger.diffHeaderHeight).toBeGreaterThan(base.diffHeaderHeight)
   })
 
+  it('uses the selected line height for both CSS and virtual row estimates', () => {
+    const compact = diffMetricsForFontSize(14, 1.2)
+    const relaxed = diffMetricsForFontSize(14, 2)
+    expect(compact.lineHeight).toBe(17)
+    expect(relaxed.lineHeight).toBe(28)
+    for (const metrics of [compact, relaxed]) {
+      expect(metrics.itemMetrics.lineHeight).toBe(metrics.lineHeight)
+      expect(metrics.itemMetrics.diffHeaderHeight).toBe(metrics.lineHeight + 24)
+      expect(metrics.cssVariables).toMatchObject({
+        '--diffs-line-height': `${metrics.lineHeight}px`,
+      })
+    }
+  })
+
   it('alternates a key CodeView compares, without changing the effective layout', () => {
     const even = diffItemMetrics(0)
     const odd = diffItemMetrics(1)

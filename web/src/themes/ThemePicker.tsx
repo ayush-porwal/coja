@@ -44,7 +44,7 @@ export function ThemePicker() {
                     {appearance === 'dark' ? 'Dark' : 'Light'} variant
                   </span>
                 </span>
-                {selected && <span className="text-xs font-medium text-accent">Active</span>}
+                {selected && <span className="text-xs font-medium text-accent-text">Active</span>}
               </button>
             )
           })}

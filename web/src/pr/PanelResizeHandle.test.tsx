@@ -60,6 +60,27 @@ describe('PanelResizeHandle', () => {
     expect(onResize).toHaveBeenCalledTimes(2)
   })
 
+  it('releases drag listeners and the selection lock when the panel unmounts', () => {
+    const onResize = vi.fn()
+    const view = render(<Harness side="left" onResize={onResize} />)
+    fireEvent.pointerDown(screen.getByRole('separator'), { button: 0 })
+    expect(document.body.classList.contains('coja-resizing')).toBe(true)
+    view.unmount()
+    expect(document.body.classList.contains('coja-resizing')).toBe(false)
+    fireEvent(window, new PointerEvent('pointermove', { clientX: 340 }))
+    expect(onResize).not.toHaveBeenCalled()
+  })
+
+  it('ends a cancelled pointer drag', () => {
+    const onResize = vi.fn()
+    render(<Harness side="left" onResize={onResize} />)
+    fireEvent.pointerDown(screen.getByRole('separator'), { button: 0 })
+    fireEvent(window, new PointerEvent('pointercancel'))
+    fireEvent(window, new PointerEvent('pointermove', { clientX: 340 }))
+    expect(document.body.classList.contains('coja-resizing')).toBe(false)
+    expect(onResize).not.toHaveBeenCalled()
+  })
+
   it('grows and shrinks with the arrow keys, Shift for larger steps', () => {
     const onResize = vi.fn()
     render(<Harness side="left" initial={288} onResize={onResize} />)

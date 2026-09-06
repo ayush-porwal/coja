@@ -8,4 +8,4 @@ export const focusRing =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus'
 
 /** Inline text link. */
-export const linkClass = cn('rounded-sm text-accent hover:underline', focusRing)
+export const linkClass = cn('rounded-sm text-accent-text hover:underline', focusRing)

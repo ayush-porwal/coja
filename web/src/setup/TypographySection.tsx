@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useTheme } from '../themes/ThemeContext'
 import { CODE_FONT_OPTIONS, TYPOGRAPHY_LIMITS, UI_FONT_OPTIONS } from '../typography'
 import { Field, Select } from '../ui'
@@ -15,6 +16,13 @@ export function TypographySection() {
 
   const set = <K extends keyof typeof typography>(key: K, value: (typeof typography)[K]) =>
     setTypography({ ...typography, [key]: value })
+
+  const codePreviewStyle: CSSProperties = {
+    fontFamily: 'var(--coja-code-font)',
+    fontSize: typography.codeSize,
+    lineHeight: typography.codeLineHeight,
+    fontVariantLigatures: typography.codeLigatures ? 'normal' : 'none',
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -102,7 +110,7 @@ export function TypographySection() {
           onChange={(e) => set('codeLigatures', e.target.checked)}
           className="accent-accent"
         />
-        Programming ligatures in code (=&gt; !== =&gt;)
+        Programming ligatures
       </label>
 
       <fieldset>
@@ -110,17 +118,16 @@ export function TypographySection() {
         <div className="rounded-md border border-edge p-3 text-sm">
           <p>Browse pull requests — Review #2014 — files changed 6</p>
           <p
-            className="mt-1 font-mono text-xs"
-            style={{ fontVariantLigatures: typography.codeLigatures ? 'normal' : 'none' }}
+            className="mt-2 overflow-x-auto whitespace-pre rounded bg-code p-3 text-code-ink"
+            style={codePreviewStyle}
           >
             {PREVIEW_CODE}
           </p>
-          <p
-            className="mt-1 font-mono text-xs"
-            style={{ fontVariantLigatures: typography.codeLigatures ? 'normal' : 'none' }}
-          >
+          <p className="mt-1 font-mono text-xs" style={codePreviewStyle}>
             {'=>  ≠  ===  ->  '}
-            {'\uf1132 \uf1136 \uf1427'}
+            <span role="img" aria-label="Nerd Font glyph samples">
+              {'\ue0a0 \uf121 \uf07b'}
+            </span>
           </p>
         </div>
       </fieldset>

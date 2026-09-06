@@ -23,7 +23,7 @@ const base = cn(
 const variants: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-accent-ink hover:opacity-90',
   secondary: 'border border-edge-strong bg-canvas text-ink hover:bg-hover',
-  danger: 'bg-danger text-white hover:opacity-90',
+  danger: 'bg-danger-button text-status-button-ink hover:opacity-90',
   ghost: 'text-muted hover:bg-hover hover:text-ink',
 }
 
