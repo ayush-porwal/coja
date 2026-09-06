@@ -218,17 +218,18 @@ describe('GitHubForge.viewer / listOpenPullRequests', () => {
       login: 'me',
       avatarUrl: 'https://avatars.test/me',
     })
-    const prs = await forge.listOpenPullRequests(REPO)
+    const page1 = await forge.listPullRequestPage(REPO, 1)
     await forge.viewer()
     expect(fake.callsTo('Viewer')).toHaveLength(1)
     expect(fake.callsTo('PrList')[0]?.vars).toEqual({ owner: 'acme', name: 'widgets', login: 'me' })
+    expect(page1).toMatchObject({ page: 1, perPage: 100, total: 3, totalPages: 1 })
 
-    expect(prs.map((p) => [p.number, p.myReviewState])).toEqual([
+    expect(page1.items.map((p) => [p.number, p.myReviewState])).toEqual([
       [1, 'none'],
       [2, 'pending'],
       [3, 'changes_requested'],
     ])
-    expect(prs[0]).toMatchObject({
+    expect(page1.items[0]).toMatchObject({
       id: 'PR_1',
       title: 'Add widgets',
       author: { login: 'alice', avatarUrl: 'https://avatars.test/alice' },
@@ -239,27 +240,67 @@ describe('GitHubForge.viewer / listOpenPullRequests', () => {
       changedFiles: 3,
       isDraft: false,
     })
-    expect(prs[1]?.author).toEqual({ login: 'ghost' })
+    expect(page1.items[1]?.author).toEqual({ login: 'ghost' })
   })
 
-  it('follows pagination cursors', async () => {
+  it('serves numbered pages via cursors, walks jumps, and reuses cached cursors', async () => {
+    // 250 PRs => 3 pages of 100; the fake honours `after` like GitHub does.
+    const all = Array.from({ length: 250 }, (_, i) =>
+      rawSummary({ id: `PR_${i + 1}`, number: i + 1 }),
+    )
+    const served: (string | undefined)[] = []
     const fake = fakeGql({
       Viewer: VIEWER,
-      PrList: (vars) => ({
-        repository: {
-          pullRequests:
-            vars.after === undefined
-              ? conn([rawSummary({ id: 'PR_1', number: 1 })], {
-                  hasNextPage: true,
-                  endCursor: 'c1',
-                })
-              : conn([rawSummary({ id: 'PR_2', number: 2 })]),
-        },
+      PrList: (vars) => {
+        served.push(vars.after as string | undefined)
+        const start = vars.after === undefined ? 0 : Number(vars.after) * 100
+        const nodes = all.slice(start, start + 100)
+        const pageNumber = start / 100
+        return {
+          repository: {
+            pullRequests: conn(
+              nodes,
+              {
+                hasNextPage: pageNumber < 2,
+                endCursor: pageNumber < 2 ? String(pageNumber + 1) : null,
+              },
+              250,
+            ),
+          },
+        }
+      },
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+
+    const page1 = await forge.listPullRequestPage(REPO, 1)
+    expect(page1.items.map((p) => p.number)).toEqual(all.slice(0, 100).map((p) => p.number))
+    expect(page1).toMatchObject({ page: 1, perPage: 100, total: 250, totalPages: 3 })
+    expect(served).toEqual([undefined])
+
+    // Jump to page 3: walks page 2 (cursor cached) then serves page 3.
+    const page3 = await forge.listPullRequestPage(REPO, 3)
+    expect(page3.items.map((p) => p.number)).toEqual(all.slice(200).map((p) => p.number))
+    expect(served).toEqual([undefined, '1', '2'])
+
+    // Page 2 is cached: one query, `after` = page 2's start cursor.
+    const page2 = await forge.listPullRequestPage(REPO, 2)
+    expect(page2.items.map((p) => p.number)).toEqual(all.slice(100, 200).map((p) => p.number))
+    expect(served).toEqual([undefined, '1', '2', '1'])
+  })
+
+  it('answers an out-of-range page as empty with correct totals', async () => {
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PrList: () => ({
+        repository: { pullRequests: conn([rawSummary({ number: 1 })], noPage, 1) },
       }),
     })
-    const prs = await new GitHubForge({ gql: fake.gql }).listOpenPullRequests(REPO)
-    expect(prs.map((p) => p.number)).toEqual([1, 2])
-    expect(fake.callsTo('PrList').map((c) => c.vars.after)).toEqual([undefined, 'c1'])
+    const forge = new GitHubForge({ gql: fake.gql })
+    const beyond = await forge.listPullRequestPage(REPO, 5)
+    expect(beyond).toMatchObject({ page: 5, items: [], total: 1, totalPages: 1 })
+    // Page 0/negative clamps to 1.
+    const clamped = await forge.listPullRequestPage(REPO, 0)
+    expect(clamped.page).toBe(1)
   })
 
   it('does not cache a failed viewer lookup', async () => {

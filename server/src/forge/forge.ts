@@ -4,6 +4,7 @@ import type {
   AddCommentResponse,
   FileViewedState,
   PullRequestDetail,
+  PullRequestPage,
   PullRequestSummary,
   ReplyResponse,
   ReviewComment,
@@ -40,7 +41,8 @@ export interface PullRequestRefs {
 export interface Forge {
   viewer(): Promise<Actor>
 
-  listOpenPullRequests(repo: RepoRef): Promise<PullRequestSummary[]>
+  /** One page of open PRs (100 per page, most recently updated first). */
+  listPullRequestPage(repo: RepoRef, page: number): Promise<PullRequestPage>
   /** Cheap lookup of the refs needed to fetch a PR. */
   getPullRequestRefs(repo: RepoRef, number: number): Promise<PullRequestRefs>
   /** Full detail: body, commits, files (with viewed state), threads (incl. the viewer's pending ones), conversation. */

@@ -12,6 +12,7 @@ import type {
   MyReviewState,
   PendingReview,
   PullRequestDetail,
+  PullRequestPage,
   PullRequestSummary,
   ReplyResponse,
   ReviewComment,
@@ -34,7 +35,8 @@ import * as q from './queries.js'
  */
 
 /** Open-PR list pages of 100; a repo with more than this many open PRs is truncated. */
-const MAX_PR_LIST_PAGES = 10
+/** One API page = one GraphQL page; also the contract's `perPage`. */
+export const PR_PAGE_SIZE = 100
 /** GitHub caps a PR's commit list at 250 regardless of paging (100 + 100 + 50). */
 const MAX_COMMIT_PAGES = 3
 /** Runaway guard for the other connections (files are capped by GitHub at 3000 = 30 pages). */
@@ -51,6 +53,8 @@ export interface GitHubForgeOptions {
 export class GitHubForge implements Forge {
   private readonly gql: GqlFn
   private viewerPromise: Promise<Actor> | undefined
+  /** owner/repo → page number → that page's start cursor (page 1 needs none). */
+  private readonly prCursors = new Map<string, Map<number, string>>()
   /** Per-PR tail of the `addPendingComment` chain, so first comments cannot race (see below). */
   private readonly commentQueues = new Map<string, Promise<void>>()
 
@@ -70,21 +74,65 @@ export class GitHubForge implements Forge {
     return this.viewerPromise
   }
 
-  async listOpenPullRequests(repo: RepoRef): Promise<PullRequestSummary[]> {
+  /**
+   * One page of open PRs. A page is exactly one GraphQL page (100 nodes), so
+   * serving page N needs the start cursor of page N: cursors are cached per
+   * repo as they are seen, and a jump past the deepest cached page walks
+   * forward one 100-node query at a time, caching as it goes — later visits
+   * to any known page are a single query again.
+   */
+  async listPullRequestPage(repo: RepoRef, page: number): Promise<PullRequestPage> {
+    const wanted = Math.max(1, Math.trunc(page))
     const { login } = await this.viewer()
     const vars = { owner: repo.owner, name: repo.repo, login }
-    const first = await this.gql<q.PrListData>(q.PR_LIST, vars)
-    const connection = first.repository?.pullRequests
-    if (!connection) throw repoNotFound(repo)
-    const nodes = await drain(
-      connection,
-      async (after) => {
-        const d = await this.gql<q.PrListData>(q.PR_LIST, { ...vars, after })
-        return d.repository?.pullRequests ?? EMPTY
-      },
-      MAX_PR_LIST_PAGES,
-    )
-    return nodes.map(mapSummary)
+    const cursors = this.prPageCursors(repo)
+    // Deepest page at or before the wanted one whose start cursor we know:
+    // walking begins there (a lower cached page needs no walk at all).
+    let start = 1
+    while (start < wanted && cursors.has(start + 1)) start += 1
+
+    let items: PullRequestSummary[] = []
+    let total = 0
+    for (let p = start; p <= wanted; p += 1) {
+      const d = await this.gql<q.PrListData>(q.PR_LIST, { ...vars, after: cursors.get(p) })
+      const connection = d.repository?.pullRequests
+      if (!connection) throw repoNotFound(repo)
+      total = connection.totalCount ?? 0
+      const end = connection.pageInfo?.endCursor
+      const hasNext = connection.pageInfo?.hasNextPage
+      // Cache the next page's start cursor even when this is the page being
+      // served, so a later visit to page+1 needs no re-walk.
+      if (end && hasNext) cursors.set(p + 1, end)
+      if (p === wanted) {
+        items = (connection.nodes ?? []).filter(nonNull).map(mapSummary)
+        break
+      }
+      if (!end || !hasNext) {
+        // The list is shorter than the requested page: serve it empty.
+        return this.prPage([], wanted, total)
+      }
+    }
+    return this.prPage(items, wanted, total)
+  }
+
+  private prPageCursors(repo: RepoRef): Map<number, string> {
+    const key = `${repo.owner}/${repo.repo}`
+    let cache = this.prCursors.get(key)
+    if (!cache) {
+      cache = new Map()
+      this.prCursors.set(key, cache)
+    }
+    return cache
+  }
+
+  private prPage(items: PullRequestSummary[], page: number, total: number): PullRequestPage {
+    return {
+      items,
+      page,
+      perPage: PR_PAGE_SIZE,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / PR_PAGE_SIZE)),
+    }
   }
 
   async getPullRequestRefs(repo: RepoRef, number: number): Promise<PullRequestRefs> {
@@ -398,6 +446,10 @@ export class GitHubForge implements Forge {
 // ---------------------------------------------------------------------------
 // Paging
 // ---------------------------------------------------------------------------
+
+function nonNull<T>(value: T | null): value is T {
+  return value !== null
+}
 
 const EMPTY: q.Connection<never> = { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] }
 

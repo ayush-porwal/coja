@@ -57,7 +57,7 @@ export const API_ROUTES = {
   fsDirs: '/api/fs/dirs',
 
   // Pull requests
-  /** GET → PullRequestSummary[] (open PRs, newest update first) */
+  /** GET ?page=1 → PullRequestPage (open PRs, newest update first, 100 per page). */
   prs: (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/prs`,
   /** GET → PullRequestDetail */
   pr,
@@ -436,6 +436,17 @@ export type ConversationItem =
 export interface PendingReview {
   id: string
   commentCount: number
+}
+
+/** One page of a project's open PR list (GitHub-style pagination). */
+export interface PullRequestPage {
+  items: PullRequestSummary[]
+  /** 1-based page number served. */
+  page: number
+  perPage: number
+  /** Total open PRs in the repository. */
+  total: number
+  totalPages: number
 }
 
 export interface PullRequestDetail extends PullRequestSummary {

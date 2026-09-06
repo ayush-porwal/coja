@@ -11,7 +11,7 @@ import { registerPullRoutes } from './pulls.js'
 export function fakeForge(): { [K in keyof Forge]: ReturnType<typeof vi.fn<Forge[K]>> } {
   return {
     viewer: vi.fn<Forge['viewer']>(),
-    listOpenPullRequests: vi.fn<Forge['listOpenPullRequests']>(),
+    listPullRequestPage: vi.fn<Forge['listPullRequestPage']>(),
     getPullRequestRefs: vi.fn<Forge['getPullRequestRefs']>(),
     getPullRequest: vi.fn<Forge['getPullRequest']>(),
     addPendingComment: vi.fn<Forge['addPendingComment']>(),
@@ -65,13 +65,32 @@ const SUMMARY: PullRequestSummary = {
 }
 
 describe('pull request routes', () => {
-  it('GET prs lists open PRs for the project repo', async () => {
+  it('GET prs serves a page of open PRs (page query, default 1)', async () => {
     const { app, forge, project } = setup()
-    forge.listOpenPullRequests.mockResolvedValue([SUMMARY])
-    const res = await app.request(API_ROUTES.prs(project.id))
+    const page = {
+      items: [SUMMARY],
+      page: 2,
+      perPage: 100,
+      total: 250,
+      totalPages: 3,
+    }
+    forge.listPullRequestPage.mockResolvedValue(page)
+    const res = await app.request(`${API_ROUTES.prs(project.id)}?page=2`)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual([SUMMARY])
-    expect(forge.listOpenPullRequests).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets' })
+    expect(await res.json()).toEqual(page)
+    expect(forge.listPullRequestPage).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets' }, 2)
+
+    // Default and malformed pages clamp to 1.
+    await app.request(API_ROUTES.prs(project.id))
+    expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
+      { owner: 'acme', repo: 'widgets' },
+      1,
+    )
+    await app.request(`${API_ROUTES.prs(project.id)}?page=banana`)
+    expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
+      { owner: 'acme', repo: 'widgets' },
+      1,
+    )
   })
 
   it('GET pr returns the detail', async () => {
@@ -104,7 +123,7 @@ describe('pull request routes', () => {
         code: 'not_found',
       })
     }
-    expect(forge.listOpenPullRequests).not.toHaveBeenCalled()
+    expect(forge.listPullRequestPage).not.toHaveBeenCalled()
     expect(forge.getPullRequest).not.toHaveBeenCalled()
   })
 

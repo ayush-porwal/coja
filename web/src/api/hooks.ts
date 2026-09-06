@@ -8,10 +8,10 @@ import {
   type FetchCustomModelsRequest,
   type FetchCustomModelsResponse,
   type Project,
-  type PullRequestSummary,
+  type PullRequestPage,
   type SetupStatus,
 } from '@coja/shared/api'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { aiKeys } from '../pr/ai/hooks'
 import { api } from './client'
 
@@ -20,7 +20,7 @@ export const queryKeys = {
   setup: ['setup'] as const,
   projects: ['projects'] as const,
   project: (projectId: string) => ['project', projectId] as const,
-  prs: (projectId: string) => ['prs', projectId] as const,
+  prs: (projectId: string, page: number) => ['prs', projectId, page] as const,
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +192,8 @@ export function useDeleteProject() {
     mutationFn: (projectId: string) => api.delete<{ ok: true }>(API_ROUTES.project(projectId)),
     onSuccess: (_result, projectId) => {
       queryClient.removeQueries({ queryKey: queryKeys.project(projectId) })
-      queryClient.removeQueries({ queryKey: queryKeys.prs(projectId) })
+      // Prefix match: drop every cached page of this project.
+      queryClient.removeQueries({ queryKey: ['prs', projectId] })
       return queryClient.invalidateQueries({ queryKey: queryKeys.projects })
     },
   })
@@ -202,9 +203,18 @@ export function useDeleteProject() {
 // Pull requests
 // ---------------------------------------------------------------------------
 
-export function usePullRequests(projectId: string) {
+/**
+ * One page of open PRs (100 per page). `placeholderData: keepPreviousData`
+ * keeps the current list rendered (dimmed by the caller) while the next page
+ * loads, so paging never flashes to a skeleton.
+ */
+export function usePullRequests(projectId: string, page: number) {
   return useQuery({
-    queryKey: queryKeys.prs(projectId),
-    queryFn: () => api.get<PullRequestSummary[]>(API_ROUTES.prs(projectId)),
+    queryKey: queryKeys.prs(projectId, page),
+    queryFn: () =>
+      api.get<PullRequestPage>(
+        page === 1 ? API_ROUTES.prs(projectId) : `${API_ROUTES.prs(projectId)}?page=${page}`,
+      ),
+    placeholderData: keepPreviousData,
   })
 }

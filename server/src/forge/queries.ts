@@ -81,6 +81,7 @@ query PrList($owner: String!, $name: String!, $login: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: [OPEN], first: 100, after: $after,
                  orderBy: { field: UPDATED_AT, direction: DESC }) {
+      totalCount
       ${PAGE_INFO}
       nodes { ...PrSummary }
     }

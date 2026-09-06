@@ -2,7 +2,7 @@ import type { Context, Hono } from 'hono'
 import type { ServerContext } from '../context.js'
 import type { Forge, RepoRef } from '../forge/forge.js'
 import { getProject } from '../projects/store.js'
-import type { Project, PullRequestDetail, PullRequestSummary } from '../shared/api.js'
+import type { Project, PullRequestDetail, PullRequestPage } from '../shared/api.js'
 import { badRequest, notFound } from './http.js'
 
 /**
@@ -45,8 +45,10 @@ export function registerPullRoutes(app: Hono, ctx: ServerContext, deps: { forge:
 
   app.get(PRS_ROUTE, async (c) => {
     const { repo } = resolveProject(ctx, c)
-    const prs: PullRequestSummary[] = await forge.listOpenPullRequests(repo)
-    return c.json(prs)
+    const parsed = Number.parseInt(c.req.query('page') ?? '1', 10)
+    const page = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
+    const body = await forge.listPullRequestPage(repo, page)
+    return c.json<PullRequestPage>(body)
   })
 
   app.get(PR_ROUTE, async (c) => {
