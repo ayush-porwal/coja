@@ -1,0 +1,59 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck, lint and test
+        run: pnpm check
+
+      - name: Build (web → server/public, server → server/dist)
+        run: pnpm build
+
+      - name: Publish only if the version is new
+        id: version
+        working-directory: server
+        run: |
+          local_version="$(node -p "require('./package.json').version")"
+          published_version="$(npm view @ayushporwal/coja version 2>/dev/null || true)"
+          if [ "$local_version" = "$published_version" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Version $local_version is already published — nothing to do."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Publishing $local_version (registry has: ${published_version:-nothing})."
+          fi
+
+      - name: Upgrade the npm CLI (trusted publishing needs >= 11.5)
+        run: npm install -g npm@latest
+
+      - name: Stage the release on npm
+        if: steps.version.outputs.publish == 'true'
+        working-directory: server
+        run: npm stage publish --provenance
