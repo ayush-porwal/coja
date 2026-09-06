@@ -2,7 +2,13 @@ import type { Context, Hono } from 'hono'
 import type { ServerContext } from '../context.js'
 import type { Forge, RepoRef } from '../forge/forge.js'
 import { getProject } from '../projects/store.js'
-import type { Project, PullRequestDetail, PullRequestPage } from '../shared/api.js'
+import {
+  isEmptyFilter,
+  type PrListFilter,
+  type Project,
+  type PullRequestDetail,
+  type PullRequestPage,
+} from '../shared/api.js'
 import { badRequest, notFound } from './http.js'
 
 /**
@@ -22,7 +28,13 @@ export interface PrScope extends ProjectScope {
 }
 
 /** The project named by `:projectId`, or a 404. */
-export function resolveProject(ctx: ServerContext, c: Context): ProjectScope {
+export /** Trimmed param or undefined when empty. */
+function clean(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
+function resolveProject(ctx: ServerContext, c: Context): ProjectScope {
   const id = c.req.param('projectId')
   const project = id ? getProject(ctx.db, id) : undefined
   if (!project) throw notFound('project')
@@ -47,7 +59,20 @@ export function registerPullRoutes(app: Hono, ctx: ServerContext, deps: { forge:
     const { repo } = resolveProject(ctx, c)
     const parsed = Number.parseInt(c.req.query('page') ?? '1', 10)
     const page = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
-    const body = await forge.listPullRequestPage(repo, page)
+    const draftParam = c.req.query('draft')
+    const filter: PrListFilter = {
+      text: clean(c.req.query('text')),
+      author: clean(c.req.query('author')),
+      head: clean(c.req.query('head')),
+      base: clean(c.req.query('base')),
+      ...(draftParam === 'true' ? { draft: true } : draftParam === 'false' ? { draft: false } : {}),
+    }
+    // An empty filter means 'everything': pass undefined so the forge uses the plain list query.
+    const body = await forge.listPullRequestPage(
+      repo,
+      page,
+      isEmptyFilter(filter) ? undefined : filter,
+    )
     return c.json<PullRequestPage>(body)
   })
 

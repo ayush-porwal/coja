@@ -89,6 +89,22 @@ query PrList($owner: String!, $name: String!, $login: String!, $after: String) {
 }
 ${PR_SUMMARY}`
 
+/**
+ * Filtered open PRs via GitHub's search API. The caller builds the query
+ * string (repo/is:pr/is:open plus qualifiers); search order is best-match,
+ * like GitHub's own filtered list. Variables: query (the full string),
+ * login, after?
+ */
+export const PR_SEARCH = /* GraphQL */ `
+query PrSearch($query: String!, $login: String!, $after: String) {
+  search(query: $query, type: ISSUE, first: 100, after: $after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { ... on PullRequest { ...PrSummary } }
+  }
+}
+${PR_SUMMARY}`
+
 /** Variables: owner, name, number */
 export const PR_REFS = /* GraphQL */ `
 query PrRefs($owner: String!, $name: String!, $number: Int!) {
@@ -439,6 +455,9 @@ export interface ViewerData {
 }
 export interface PrListData {
   repository: { pullRequests: Connection<RawPrSummary> } | null
+}
+export interface PrSearchData {
+  search: (Connection<RawPrSummary> & { issueCount?: number }) | null
 }
 export interface PrRefsData {
   repository: { pullRequest: RawPrRefs | null } | null

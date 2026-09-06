@@ -1,6 +1,13 @@
-import type { Actor, MyReviewState, PullRequestPage, PullRequestSummary } from '@coja/shared/api'
+import type {
+  Actor,
+  MyReviewState,
+  PrListFilter,
+  PullRequestPage,
+  PullRequestSummary,
+} from '@coja/shared/api'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
-import { useProject, usePullRequests } from '../api/hooks'
+import { isPrFilterEmpty, useProject, usePullRequests } from '../api/hooks'
 import { formatRelativeTime } from '../lib/time'
 import {
   AppShell,
@@ -33,11 +40,41 @@ export function PullRequestListScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
   const parsed = Number.parseInt(searchParams.get('page') ?? '1', 10)
   const requested = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
-  const prs = usePullRequests(projectId, requested)
+  // Filters live in the URL like the page number, so a filtered view is
+  // shareable and survives reload/back.
+  const filter: PrListFilter = {
+    text: param(searchParams, 'text'),
+    author: param(searchParams, 'author'),
+    head: param(searchParams, 'head'),
+    base: param(searchParams, 'base'),
+    ...(searchParams.get('draft') === 'true'
+      ? { draft: true }
+      : searchParams.get('draft') === 'false'
+        ? { draft: false }
+        : {}),
+  }
+  const filtered = !isPrFilterEmpty(filter)
+  const prs = usePullRequests(projectId, requested, filter)
   const data = prs.data as PullRequestPage | undefined
 
+  /** Filter params as a record (shared by applyFilter/setPage). */
+  const filterParams = (f: PrListFilter): Record<string, string> => {
+    const params: Record<string, string> = {}
+    if (f.text) params.text = f.text
+    if (f.author) params.author = f.author
+    if (f.head) params.head = f.head
+    if (f.base) params.base = f.base
+    if (f.draft !== undefined) params.draft = String(f.draft)
+    return params
+  }
+
+  // Any filter change restarts at page 1.
+  const applyFilter = (next: PrListFilter) => setSearchParams(filterParams(next))
+
   const setPage = (next: number) => {
-    setSearchParams(next === 1 ? {} : { page: String(next) })
+    const params = filterParams(filter)
+    if (next > 1) params.page = String(next)
+    setSearchParams(params)
   }
 
   let crumb = '…'
@@ -49,7 +86,11 @@ export function PullRequestListScreen() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold tracking-tight">Open pull requests</h1>
         <div className="flex items-center gap-2">
-          {data && data.total > 0 && <span className="text-xs text-muted">{data.total} open</span>}
+          {data && data.total > 0 && (
+            <span className="text-xs text-muted">
+              {data.total} {filtered ? (data.total === 1 ? 'match' : 'matches') : 'open'}
+            </span>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -74,6 +115,8 @@ export function PullRequestListScreen() {
         />
       )}
 
+      <FilterBar filter={filter} onApply={applyFilter} />
+
       <div className="mt-4">
         {prs.isPending ? (
           <SkeletonRows rows={5} label="Loading pull requests" />
@@ -85,9 +128,22 @@ export function PullRequestListScreen() {
             retrying={prs.isFetching}
           />
         ) : !data?.items?.length ? (
-          <p className="rounded-lg border border-dashed border-edge-strong bg-card px-4 py-10 text-center text-sm text-muted">
-            No open pull requests
-          </p>
+          <div className="rounded-lg border border-dashed border-edge-strong bg-card px-4 py-10 text-center text-sm text-muted">
+            {filtered ? (
+              <>
+                <p>No pull requests match these filters.</p>
+                <button
+                  type="button"
+                  onClick={() => applyFilter({})}
+                  className="mt-2 cursor-pointer rounded-md border border-edge px-2.5 py-1 text-xs font-medium text-ink hover:bg-hover"
+                >
+                  Clear filters
+                </button>
+              </>
+            ) : (
+              <p>No open pull requests</p>
+            )}
+          </div>
         ) : (
           <div>
             <ul className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-card shadow-xs">
@@ -352,5 +408,136 @@ function RefreshIcon() {
       <path d="M13.25 8a5.25 5.25 0 1 1-1.54-3.71" />
       <path d="M13.5 1.75v2.8h-2.8" />
     </svg>
+  )
+}
+
+function param(searchParams: URLSearchParams, key: string): string | undefined {
+  const value = searchParams.get(key)?.trim()
+  return value ? value : undefined
+}
+
+/** Debounce shared by the filter bar's text inputs. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), ms)
+    return () => clearTimeout(timer)
+  }, [value, ms])
+  return debounced
+}
+
+/**
+ * GitHub-style filter bar: title/SHA text, author, head branch, draft state.
+ * Inputs debounce into the URL (`onApply`), which refetches page 1. Draft is
+ * a three-way select; the whole bar highlights while a filter is active.
+ */
+function FilterBar({
+  filter,
+  onApply,
+}: {
+  filter: PrListFilter
+  onApply(next: PrListFilter): void
+}) {
+  const [text, setText] = useState(filter.text ?? '')
+  const [author, setAuthor] = useState(filter.author ?? '')
+  const [head, setHead] = useState(filter.head ?? '')
+  const debouncedText = useDebounced(text, 300)
+  const debouncedAuthor = useDebounced(author, 300)
+  const debouncedHead = useDebounced(head, 300)
+
+  const draftNext = (draft: boolean | undefined) => ({
+    text: debouncedText.trim() || undefined,
+    author: debouncedAuthor.trim() || undefined,
+    head: debouncedHead.trim() || undefined,
+    base: filter.base,
+    draft,
+  })
+
+  // Push debounced edits once; resync inputs when the URL changes externally
+  // (Clear buttons, back/forward).
+  const key = `${debouncedText}|${debouncedAuthor}|${debouncedHead}|${filter.base ?? ''}|${filter.draft ?? ''}`
+  const lastPushed = useRef(key)
+  useEffect(() => {
+    if (lastPushed.current === key) return
+    lastPushed.current = key
+    onApply(draftNext(filter.draft))
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setText(filter.text ?? '')
+    setAuthor(filter.author ?? '')
+    setHead(filter.head ?? '')
+  }, [filter.text, filter.author, filter.head])
+
+  const active = !isPrFilterEmpty(filter)
+  return (
+    <div
+      className={`mt-4 flex flex-wrap items-center gap-2 rounded-lg border px-2 py-1.5 ${
+        active ? 'border-accent bg-accent-soft' : 'border-edge bg-card'
+      }`}
+    >
+      <FilterInput
+        label="Search"
+        placeholder="Title text or commit SHA…"
+        value={text}
+        onChange={setText}
+      />
+      <FilterInput label="Author" placeholder="login" value={author} onChange={setAuthor} />
+      <FilterInput label="Branch" placeholder="head branch" value={head} onChange={setHead} />
+      <select
+        aria-label="Draft state"
+        title="Draft state"
+        value={filter.draft === undefined ? '' : String(filter.draft)}
+        onChange={(event) => {
+          const draft = event.target.value === '' ? undefined : event.target.value === 'true'
+          lastPushed.current = `${debouncedText}|${debouncedAuthor}|${debouncedHead}|${filter.base ?? ''}|${draft ?? ''}`
+          onApply(draftNext(draft))
+        }}
+        className="h-7 cursor-pointer rounded-md border border-edge bg-card px-1.5 text-xs text-ink"
+      >
+        <option value="">Any draft state</option>
+        <option value="true">Drafts</option>
+        <option value="false">Ready</option>
+      </select>
+      {active && (
+        <button
+          type="button"
+          onClick={() => {
+            lastPushed.current = '|| || |'
+            setText('')
+            setAuthor('')
+            setHead('')
+            onApply({})
+          }}
+          className="cursor-pointer rounded-md px-1.5 py-1 text-xs font-medium text-muted hover:text-ink"
+        >
+          Clear ×
+        </button>
+      )}
+    </div>
+  )
+}
+
+function FilterInput({
+  label,
+  placeholder,
+  value,
+  onChange,
+}: {
+  label: string
+  placeholder: string
+  value: string
+  onChange(value: string): void
+}) {
+  return (
+    <label className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted sm:min-w-40">
+      <span className="shrink-0">{label}</span>
+      <input
+        type="search"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-7 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-2 text-xs text-ink outline-none placeholder:text-faint focus:border-accent"
+      />
+    </label>
   )
 }

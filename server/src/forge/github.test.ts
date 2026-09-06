@@ -4,6 +4,7 @@ import type { ReviewThread } from '../shared/api.js'
 import { ForgeError, type PullRequestRefs } from './forge.js'
 import {
   buildConversation,
+  buildSearchQuery,
   COMMENT_LOCATION_REJECTED,
   deriveMyReviewState,
   GitHubForge,
@@ -1313,5 +1314,118 @@ describe('GitHubForge.discardPendingReview', () => {
     const without = fakeGql({ Viewer: VIEWER, PendingReview: pendingLookup(null) })
     await new GitHubForge({ gql: without.gql }).discardPendingReview(REPO, 7)
     expect(without.ops()).toEqual(['Viewer', 'PendingReview'])
+  })
+})
+
+describe('buildSearchQuery', () => {
+  it('composes qualifiers with repo/is:pr/is:open', () => {
+    expect(buildSearchQuery(REPO, { text: 'fix login', author: 'alice' })).toBe(
+      'repo:acme/widgets is:pr is:open fix login in:title author:alice',
+    )
+  })
+
+  it('quotes branch names with special characters and phrase-quotes text containing colons', () => {
+    expect(buildSearchQuery(REPO, { head: 'feat/x', base: 'main' })).toBe(
+      'repo:acme/widgets is:pr is:open head:"feat/x" base:main',
+    )
+    expect(buildSearchQuery(REPO, { text: 'is:closed hijack' })).toBe(
+      'repo:acme/widgets is:pr is:open "is:closed hijack" in:title',
+    )
+  })
+
+  it('passes a bare hex SHA without in:title so GitHub matches it by commit', () => {
+    expect(buildSearchQuery(REPO, { text: 'a9eb1caf5159' })).toBe(
+      'repo:acme/widgets is:pr is:open a9eb1caf5159',
+    )
+    expect(buildSearchQuery(REPO, { text: 'a9eb1caf5159z' })).toBe(
+      'repo:acme/widgets is:pr is:open a9eb1caf5159z in:title',
+    )
+  })
+
+  it('maps draft both ways and skips empty fields', () => {
+    expect(buildSearchQuery(REPO, { draft: true })).toBe(
+      'repo:acme/widgets is:pr is:open draft:true',
+    )
+    expect(buildSearchQuery(REPO, { draft: false })).toBe(
+      'repo:acme/widgets is:pr is:open draft:false',
+    )
+    expect(buildSearchQuery(REPO, { text: '   ', author: '' })).toBe(
+      'repo:acme/widgets is:pr is:open',
+    )
+  })
+})
+
+describe('GitHubForge.listPullRequestPage — filters', () => {
+  it('uses the search query with the built filter string and maps results with issueCount as total', async () => {
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PrSearch: (vars) => ({
+        search: conn(
+          [rawSummary({ id: 'PR_9', number: 9 })],
+          { hasNextPage: false, endCursor: null },
+          1,
+        ),
+      }),
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    const page = await forge.listPullRequestPage(REPO, 1, { author: 'alice' })
+    expect(page.items.map((p) => p.number)).toEqual([9])
+    expect(page).toMatchObject({ total: 1, totalPages: 1 })
+    expect(fake.callsTo('PrSearch')[0]?.vars.query).toBe(
+      'repo:acme/widgets is:pr is:open author:alice',
+    )
+    expect(fake.callsTo('PrList')).toHaveLength(0)
+  })
+
+  it('pages filtered results through cursors like the plain list', async () => {
+    const all = Array.from({ length: 150 }, (_, i) =>
+      rawSummary({ id: `PR_${i + 1}`, number: i + 1 }),
+    )
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PrSearch: (vars) => {
+        const start = vars.after === undefined ? 0 : Number(vars.after) * 100
+        const nodes = all.slice(start, start + 100)
+        const pageNumber = start / 100
+        return {
+          search: conn(
+            nodes,
+            {
+              hasNextPage: pageNumber < 1,
+              endCursor: pageNumber < 1 ? String(pageNumber + 1) : null,
+            },
+            150,
+          ),
+        }
+      },
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    const p1 = await forge.listPullRequestPage(REPO, 1, { draft: true })
+    const p2 = await forge.listPullRequestPage(REPO, 2, { draft: true })
+    expect(p1.items).toHaveLength(100)
+    expect(p2.items.map((p) => p.number)).toEqual(all.slice(100).map((p) => p.number))
+    expect(fake.callsTo('PrSearch').map((c) => c.vars.after)).toEqual([undefined, '1'])
+  })
+
+  it('keeps filter cursors independent from the unfiltered list cursors', async () => {
+    let listCalls = 0
+    let searchCalls = 0
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PrList: () => {
+        listCalls += 1
+        return { repository: { pullRequests: conn([rawSummary({ number: 1 })]) } }
+      },
+      PrSearch: () => {
+        searchCalls += 1
+        return { search: conn([rawSummary({ number: 2 })]) }
+      },
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    await forge.listPullRequestPage(REPO, 1)
+    await forge.listPullRequestPage(REPO, 1, { text: 'x' })
+    await forge.listPullRequestPage(REPO, 1, { text: 'x' })
+    expect(listCalls).toBe(1)
+    expect(searchCalls).toBe(2)
   })
 })

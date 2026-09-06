@@ -11,6 +11,7 @@ import type {
   FileViewedState,
   MyReviewState,
   PendingReview,
+  PrListFilter,
   PullRequestDetail,
   PullRequestPage,
   PullRequestSummary,
@@ -21,6 +22,7 @@ import type {
   SubmitReviewRequest,
   SubmitReviewResponse,
 } from '../shared/api.js'
+import { isEmptyFilter } from '../shared/api.js'
 import { type Forge, ForgeError, type PullRequestRefs, type RepoRef } from './forge.js'
 import type { GqlFn } from './graphql.js'
 import * as q from './queries.js'
@@ -53,7 +55,7 @@ export interface GitHubForgeOptions {
 export class GitHubForge implements Forge {
   private readonly gql: GqlFn
   private viewerPromise: Promise<Actor> | undefined
-  /** owner/repo → page number → that page's start cursor (page 1 needs none). */
+  /** `owner/repo` + filter → page number → that page's start cursor (page 1 needs none). */
   private readonly prCursors = new Map<string, Map<number, string>>()
   /** Per-PR tail of the `addPendingComment` chain, so first comments cannot race (see below). */
   private readonly commentQueues = new Map<string, Promise<void>>()
@@ -81,11 +83,16 @@ export class GitHubForge implements Forge {
    * forward one 100-node query at a time, caching as it goes — later visits
    * to any known page are a single query again.
    */
-  async listPullRequestPage(repo: RepoRef, page: number): Promise<PullRequestPage> {
+  async listPullRequestPage(
+    repo: RepoRef,
+    page: number,
+    filter?: PrListFilter,
+  ): Promise<PullRequestPage> {
     const wanted = Math.max(1, Math.trunc(page))
     const { login } = await this.viewer()
-    const vars = { owner: repo.owner, name: repo.repo, login }
-    const cursors = this.prPageCursors(repo)
+    const filtered = filter !== undefined && !isEmptyFilter(filter)
+    // Cursors are cached per repo AND per filter (each filter pages independently).
+    const cursors = this.prPageCursors(repo, filter)
     // Deepest page at or before the wanted one whose start cursor we know:
     // walking begins there (a lower cached page needs no walk at all).
     let start = 1
@@ -94,9 +101,25 @@ export class GitHubForge implements Forge {
     let items: PullRequestSummary[] = []
     let total = 0
     for (let p = start; p <= wanted; p += 1) {
-      const d = await this.gql<q.PrListData>(q.PR_LIST, { ...vars, after: cursors.get(p) })
-      const connection = d.repository?.pullRequests
-      if (!connection) throw repoNotFound(repo)
+      const after = cursors.get(p)
+      const connection = filtered
+        ? this.searchConnection(
+            await this.gql<q.PrSearchData>(q.PR_SEARCH, {
+              query: buildSearchQuery(repo, filter),
+              login,
+              after,
+            }),
+            repo,
+          )
+        : this.listConnection(
+            await this.gql<q.PrListData>(q.PR_LIST, {
+              owner: repo.owner,
+              name: repo.repo,
+              login,
+              after,
+            }),
+            repo,
+          )
       total = connection.totalCount ?? 0
       const end = connection.pageInfo?.endCursor
       const hasNext = connection.pageInfo?.hasNextPage
@@ -115,8 +138,19 @@ export class GitHubForge implements Forge {
     return this.prPage(items, wanted, total)
   }
 
-  private prPageCursors(repo: RepoRef): Map<number, string> {
-    const key = `${repo.owner}/${repo.repo}`
+  private listConnection(d: q.PrListData, repo: RepoRef): q.Connection<q.RawPrSummary> {
+    const connection = d.repository?.pullRequests
+    if (!connection) throw repoNotFound(repo)
+    return connection
+  }
+
+  private searchConnection(d: q.PrSearchData, repo: RepoRef): q.Connection<q.RawPrSummary> {
+    if (!d.search) throw new ForgeError(`GitHub search failed for ${repo.owner}/${repo.repo}`)
+    return { ...d.search, totalCount: d.search.issueCount ?? d.search.totalCount }
+  }
+
+  private prPageCursors(repo: RepoRef, filter?: PrListFilter): Map<number, string> {
+    const key = filterKey(repo, filter)
     let cache = this.prCursors.get(key)
     if (!cache) {
       cache = new Map()
@@ -684,3 +718,56 @@ const repoNotFound = (repo: RepoRef) =>
   new ForgeError(`Repository ${repo.owner}/${repo.repo} was not found on GitHub.`, 404)
 const prNotFound = (repo: RepoRef, number: number) =>
   new ForgeError(`Pull request #${number} was not found in ${repo.owner}/${repo.repo}.`, 404)
+
+// ---------------------------------------------------------------------------
+// Search-query building (GitHub search API qualifiers)
+// ---------------------------------------------------------------------------
+
+/** Logins are safe bare; anything else gets quoted so `/` and `:` stay literal. */
+const SAFE_BARE = /^[A-Za-z0-9_.-]+$/
+const quote = (value: string): string =>
+  SAFE_BARE.test(value) ? value : `"${value.replace(/"/g, '')}"`
+
+/**
+ * The search string for a filter: `repo:o/r is:pr is:open` plus qualifiers.
+ * Title text is passed as tokens with `in:title`; text containing `:` or
+ * quotes becomes a quoted phrase so it can never inject qualifiers. A bare
+ * hex token doubles as a commit-SHA search, which GitHub handles natively.
+ */
+export function buildSearchQuery(repo: RepoRef, filter?: PrListFilter): string {
+  const parts = [`repo:${repo.owner}/${repo.repo}`, 'is:pr', 'is:open']
+  const text = filter?.text?.trim()
+  if (text) {
+    // A bare hex SHA must go WITHOUT `in:title`: GitHub matches it to the PR
+    // by commit instead. Text containing `:` or quotes becomes a phrase so it
+    // can never inject qualifiers.
+    if (/^[0-9a-f]{7,40}$/i.test(text)) {
+      parts.push(text.toLowerCase())
+    } else {
+      const safe = /["':]/.test(text) ? `"${text.replace(/"/g, '')}"` : text
+      parts.push(`${safe} in:title`)
+    }
+  }
+  const author = filter?.author?.trim()
+  if (author) parts.push(`author:${quote(author)}`)
+  const head = filter?.head?.trim()
+  if (head) parts.push(`head:${quote(head)}`)
+  const base = filter?.base?.trim()
+  if (base) parts.push(`base:${quote(base)}`)
+  if (filter?.draft !== undefined) parts.push(`draft:${filter.draft ? 'true' : 'false'}`)
+  return parts.join(' ')
+}
+
+/** Cache key: repo plus the filter's own identity (stable field order). */
+export function filterKey(repo: RepoRef, filter?: PrListFilter): string {
+  if (filter === undefined || isEmptyFilter(filter)) return `${repo.owner}/${repo.repo}`
+  const f = filter
+  return [
+    `${repo.owner}/${repo.repo}`,
+    f.text ?? '',
+    f.author ?? '',
+    f.head ?? '',
+    f.base ?? '',
+    f.draft === undefined ? '' : String(f.draft),
+  ].join('|')
+}

@@ -7,6 +7,7 @@ import {
   type DirListing,
   type FetchCustomModelsRequest,
   type FetchCustomModelsResponse,
+  type PrListFilter,
   type Project,
   type PullRequestPage,
   type SetupStatus,
@@ -20,7 +21,8 @@ export const queryKeys = {
   setup: ['setup'] as const,
   projects: ['projects'] as const,
   project: (projectId: string) => ['project', projectId] as const,
-  prs: (projectId: string, page: number) => ['prs', projectId, page] as const,
+  prs: (projectId: string, page: number, filterKey: string) =>
+    ['prs', projectId, page, filterKey] as const,
 }
 
 // ---------------------------------------------------------------------------
@@ -207,13 +209,37 @@ export function useDeleteProject() {
  * One page of open PRs (100 per page). Each page is its own cache entry: a
  * revisited page renders instantly with no network call, while a page that
  * must be fetched shows the skeletons again (`isPending` until it arrives).
+ * Filters are part of the key, so each filter combination pages independently.
  */
-export function usePullRequests(projectId: string, page: number) {
+export function usePullRequests(projectId: string, page: number, filter: PrListFilter) {
   return useQuery({
-    queryKey: queryKeys.prs(projectId, page),
-    queryFn: () =>
-      api.get<PullRequestPage>(
-        page === 1 ? API_ROUTES.prs(projectId) : `${API_ROUTES.prs(projectId)}?page=${page}`,
-      ),
+    queryKey: queryKeys.prs(projectId, page, prFilterKey(filter)),
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (page > 1) params.set('page', String(page))
+      if (filter.text) params.set('text', filter.text)
+      if (filter.author) params.set('author', filter.author)
+      if (filter.head) params.set('head', filter.head)
+      if (filter.base) params.set('base', filter.base)
+      if (filter.draft !== undefined) params.set('draft', String(filter.draft))
+      const query = params.toString()
+      return api.get<PullRequestPage>(`${API_ROUTES.prs(projectId)}${query ? `?${query}` : ''}`)
+    },
   })
+}
+
+/** Stable identity for a filter (cache keys and effect deps). */
+export function prFilterKey(filter: PrListFilter): string {
+  return [
+    filter.text ?? '',
+    filter.author ?? '',
+    filter.head ?? '',
+    filter.base ?? '',
+    filter.draft === undefined ? '' : String(filter.draft),
+  ].join('|')
+}
+
+/** True when no filter field is set. */
+export function isPrFilterEmpty(filter: PrListFilter): boolean {
+  return prFilterKey(filter) === '||||'
 }

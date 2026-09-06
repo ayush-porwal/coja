@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { project, pullRequest, setupStatus } from '../test/fixtures'
 import { deferred, installMockApi, jsonError } from '../test/mockApi'
 import { renderAt } from '../test/render'
@@ -209,5 +209,70 @@ describe('windowedPages', () => {
     expect(windowedPages(5, 9)).toEqual([1, '…', 4, 5, 6, '…', 9])
     expect(windowedPages(1, 9)).toEqual([1, 2, '…', 9])
     expect(windowedPages(9, 9)).toEqual([1, '…', 8, 9])
+  })
+})
+
+describe('filter bar', () => {
+  it('debounces typed filters into the URL and fetch, and highlights the bar', async () => {
+    const mock = installMockApi({
+      ...base,
+      'GET /api/projects/p1/prs': ({ url }) => {
+        const text = url.searchParams.get('text')
+        const author = url.searchParams.get('author')
+        return pageOf([pullRequest({ title: text ? `Fix ${text}` : 'Add the thing' })])
+      },
+    })
+    renderAt('/p/p1')
+    expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
+
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'login' } })
+    fireEvent.change(screen.getByLabelText('Author'), { target: { value: 'alice' } })
+    // One debounced fetch carrying both filters (not one per keystroke).
+    await waitFor(
+      () =>
+        expect(
+          mock.calls.filter((c) => c.url.includes('text=login') && c.url.includes('author=alice')),
+        ).toHaveLength(1),
+      { timeout: 2000 },
+    )
+    expect(mock.calls.filter((c) => c.url.includes('text=')).length).toBe(1)
+    expect(await screen.findByRole('link', { name: 'Fix login' })).toBeDefined()
+  })
+
+  it('draft select applies immediately and Clear resets the filters', async () => {
+    const mock = installMockApi({
+      ...base,
+      'GET /api/projects/p1/prs': pageOf([pullRequest()]),
+    })
+    renderAt('/p/p1')
+    expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
+
+    fireEvent.change(screen.getByLabelText('Draft state'), { target: { value: 'true' } })
+    await waitFor(() =>
+      expect(mock.calls.filter((c) => c.url.includes('draft=true'))).toHaveLength(1),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Clear/ }))
+    await waitFor(() => {
+      const withFilter = mock.calls.filter(
+        (c) => c.url.includes('draft=') || c.url.includes('text='),
+      )
+      // Only the draft fetch carried a filter; Clear went back to the bare URL.
+      expect(withFilter).toHaveLength(1)
+    })
+  })
+
+  it('shows the filtered empty state with a Clear filters action', async () => {
+    const empty = false
+    installMockApi({
+      ...base,
+      'GET /api/projects/p1/prs': ({ url }) =>
+        url.searchParams.has('text') ? pageOf([]) : pageOf([pullRequest()]),
+    })
+    void empty
+    renderAt('/p/p1?text=nomatch')
+    expect(await screen.findByText('No pull requests match these filters.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
   })
 })

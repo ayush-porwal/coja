@@ -78,18 +78,24 @@ describe('pull request routes', () => {
     const res = await app.request(`${API_ROUTES.prs(project.id)}?page=2`)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual(page)
-    expect(forge.listPullRequestPage).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets' }, 2)
+    expect(forge.listPullRequestPage).toHaveBeenCalledWith(
+      { owner: 'acme', repo: 'widgets' },
+      2,
+      undefined,
+    )
 
     // Default and malformed pages clamp to 1.
     await app.request(API_ROUTES.prs(project.id))
     expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
       { owner: 'acme', repo: 'widgets' },
       1,
+      undefined,
     )
     await app.request(`${API_ROUTES.prs(project.id)}?page=banana`)
     expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
       { owner: 'acme', repo: 'widgets' },
       1,
+      undefined,
     )
   })
 

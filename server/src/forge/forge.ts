@@ -3,6 +3,7 @@ import type {
   AddCommentRequest,
   AddCommentResponse,
   FileViewedState,
+  PrListFilter,
   PullRequestDetail,
   PullRequestPage,
   PullRequestSummary,
@@ -41,8 +42,11 @@ export interface PullRequestRefs {
 export interface Forge {
   viewer(): Promise<Actor>
 
-  /** One page of open PRs (100 per page, most recently updated first). */
-  listPullRequestPage(repo: RepoRef, page: number): Promise<PullRequestPage>
+  /**
+   * One page of open PRs (100 per page; most recently updated first when
+   * unfiltered, best-match when a filter is set — GitHub's own behaviour).
+   */
+  listPullRequestPage(repo: RepoRef, page: number, filter?: PrListFilter): Promise<PullRequestPage>
   /** Cheap lookup of the refs needed to fetch a PR. */
   getPullRequestRefs(repo: RepoRef, number: number): Promise<PullRequestRefs>
   /** Full detail: body, commits, files (with viewed state), threads (incl. the viewer's pending ones), conversation. */

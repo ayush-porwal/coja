@@ -57,7 +57,10 @@ export const API_ROUTES = {
   fsDirs: '/api/fs/dirs',
 
   // Pull requests
-  /** GET ?page=1 → PullRequestPage (open PRs, newest update first, 100 per page). */
+  /**
+   * GET ?page=1&text=&author=&head=&base=&draft=true|false → PullRequestPage
+   * (open PRs, newest update first, 100 per page; filters are server-side).
+   */
   prs: (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/prs`,
   /** GET → PullRequestDetail */
   pr,
@@ -436,6 +439,35 @@ export type ConversationItem =
 export interface PendingReview {
   id: string
   commentCount: number
+}
+
+/**
+ * GitHub-style list filters, applied server-side across ALL open PRs (not
+ * just the loaded page) via GitHub's search API. All fields optional;
+ * an empty filter uses the plain (updated-first) list query.
+ */
+export interface PrListFilter {
+  /** Title text (word tokens, `in:title`); a bare hex SHA token matches by commit. */
+  text?: string
+  /** Author's GitHub login (exact, `author:`). */
+  author?: string
+  /** Head branch name (`head:`). */
+  head?: string
+  /** Base branch name (`base:`). */
+  base?: string
+  /** Draft state: true = drafts only, false = ready only, undefined = both. */
+  draft?: boolean
+}
+
+/** True when no field is set — the filter that means "everything". */
+export function isEmptyFilter(filter: PrListFilter): boolean {
+  return (
+    (filter.text ?? '') === '' &&
+    (filter.author ?? '') === '' &&
+    (filter.head ?? '') === '' &&
+    (filter.base ?? '') === '' &&
+    filter.draft === undefined
+  )
 }
 
 /** One page of a project's open PR list (GitHub-style pagination). */
