@@ -20,11 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -56,4 +56,4 @@ jobs:
       - name: Stage the release on npm
         if: steps.version.outputs.publish == 'true'
         working-directory: server
-        run: npm stage publish
+        run: npm stage publish --provenance

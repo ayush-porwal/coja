@@ -8,10 +8,9 @@ Local code review for GitHub pull requests, with an AI sidepanel that helps the 
 
 Coja pulls a pull request into a local clone and reviews it in a fast, GitHub-style diff UI — file tree, line comments, pending review, approve or request changes. An AI sidepanel sits next to the diff, grounded in the same PR: it reads the changed files, answers questions, and helps you write the review. Everything runs on your machine.
 
-| | |
-|---|---|
-| ![Review in mulberry dark](docs/screenshots/mulberry-dark/review-wide.png) |
-| ![Pull request list in grove light](docs/screenshots/grove-light/pr-list-wide.png) |
+| Review — mulberry dark                                                     | Pull requests — grove light                                                        |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| ![Review in mulberry dark](docs/screenshots/mulberry-dark/review-wide.png) | ![Pull request list in grove light](docs/screenshots/grove-light/pr-list-wide.png) |
 
 ## Quick start
 
@@ -24,7 +23,7 @@ Coja starts a local server on `http://localhost:4321` and opens your browser. Fi
 
 1. **GitHub token** — used to read repositories and pull requests. Stored in your OS keychain, never on our servers (there are none).
 2. **A project** — point Coja at an existing local checkout, or let it clone the repository for you.
-3. **An AI provider key** *(optional)* — OpenAI, Anthropic, or a custom OpenAI-compatible endpoint. Only needed for the AI sidepanel; review without it works fine.
+3. **An AI provider key** _(optional)_ — OpenAI, Anthropic, or a custom OpenAI-compatible endpoint. Only needed for the AI sidepanel; review without it works fine.
 
 Requirements: Node.js 22.13 or newer. macOS, Linux and Windows.
 
