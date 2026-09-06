@@ -1,24 +1,18 @@
+import type { AnimationItem } from 'lottie-web'
 import { useEffect, useRef, useState } from 'react'
 import type { BrandLoaderSize } from './manifest'
 import { type BrandAppearance, brandAssetsFor, brandManifest } from './manifest'
 
-export const BRAND_LOADER_SIZES: Record<BrandLoaderSize, number> = brandManifest.sizes as Record<
-  BrandLoaderSize,
-  number
->
-
-/** Frame of the completed mark used for reduced-motion and load fallbacks. */
+export const BRAND_LOADER_SIZES = brandManifest.sizes
+/** Frame of the completed mark for consumers that need a still animation. */
 export const BRAND_COMPLETED_FRAME = 260
 
 interface BrandLoaderProps {
   paletteId: string
   appearance: BrandAppearance
   size: BrandLoaderSize
-  /** Override the asset's nominal pixel size (responsive layouts). */
   pixelSize?: number
-  /** Visible status text; also announced via a polite live region. */
   label?: string
-  /** Playback rate (lottie `setSpeed`). >1 finishes the handwriting sooner. */
   speed?: number
   className?: string
 }
@@ -36,30 +30,7 @@ function usePrefersReducedMotion(): boolean {
   return reduced
 }
 
-/** Static completed mark (frame 260), used for reduced motion and load failure. */
-function StaticMark({ src, pixelSize, label }: { src: string; pixelSize: number; label?: string }) {
-  return (
-    <div
-      className={label ? 'flex flex-col items-center gap-3' : 'flex items-center justify-center'}
-      style={{ width: pixelSize, height: pixelSize }}
-    >
-      <img src={src} alt="" width={pixelSize} height={pixelSize} draggable={false} />
-      {label && (
-        <p role="status" className="text-sm text-muted">
-          {label}
-        </p>
-      )}
-    </div>
-  )
-}
-
-/**
- * The handwritten CJ loader for the active palette + appearance. Renders the
- * approved Lottie (C, hanging J, dot, hold, fade — looping) via lottie-web's
- * SVG renderer; falls back to the completed static mark for reduced motion or
- * if the animation fails to load, so loading UI never goes blank. The
- * animation is decorative: only `label` is announced.
- */
+/** Theme-specific handwriting, with a real SVG still until ready or on failure. */
 export function BrandLoader({
   paletteId,
   appearance,
@@ -69,78 +40,105 @@ export function BrandLoader({
   speed = 1,
   className,
 }: BrandLoaderProps) {
-  const { loaders } = brandAssetsFor(paletteId, appearance)
+  const { icon, loaders } = brandAssetsFor(paletteId, appearance)
   const src = loaders[size]
   const reduced = usePrefersReducedMotion()
-  const nominal = BRAND_LOADER_SIZES[size]
-  const px = pixelSize ?? nominal
+  const px = pixelSize ?? BRAND_LOADER_SIZES[size]
   const containerRef = useRef<HTMLDivElement>(null)
-  const [failed, setFailed] = useState(false)
-  const failedRef = useRef(false)
+  const playerRef = useRef<AnimationItem | null>(null)
+  const frameRef = useRef(0)
+  const speedRef = useRef(speed)
+  const [readySrc, setReadySrc] = useState<string | null>(null)
 
-  const animationSrc = reduced ? null : src
-  const staticSrc = loaders[size] // same file: frame 260 of it, no extra asset
-
-  // Lottie lifecycle: destroy on src change/unmount; Strict Mode-safe because
-  // cleanup destroys before the (re)run creates a fresh player.
   useEffect(() => {
-    if (!animationSrc || failedRef.current) return
-    let destroyed = false
-    let instance: { destroy: () => void; setSpeed: (rate: number) => void } | null = null
-    let cancelled = false
+    speedRef.current = speed
+    playerRef.current?.setSpeed(speed)
+  }, [speed])
 
+  useEffect(() => {
+    if (reduced) return
+    const container = containerRef.current
+    if (!container) return
+    const abort = new AbortController()
+    let disposed = false
+    let instance: AnimationItem | null = null
+    setReadySrc(null)
+
+    const fail = () => {
+      if (disposed) return
+      setReadySrc(null)
+      if (playerRef.current === instance) playerRef.current = null
+      instance?.destroy()
+      instance = null
+    }
     Promise.all([
       import('lottie-web').then((m) => m.default),
-      fetch(animationSrc).then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
+      fetch(src, { signal: abort.signal }).then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json()
       }),
     ])
       .then(([lottie, animationData]) => {
-        if (destroyed || cancelled || !containerRef.current) return
+        if (disposed) return
         instance = lottie.loadAnimation({
-          container: containerRef.current,
+          container,
           renderer: 'svg',
           loop: true,
-          autoplay: true,
+          autoplay: false,
           animationData: structuredClone(animationData),
         })
-        if (speed !== 1) instance.setSpeed(speed)
-      })
-      .catch(() => {
-        if (!destroyed) {
-          failedRef.current = true
-          setFailed(true)
+        playerRef.current = instance
+        instance.setSpeed(speedRef.current)
+        const ready = () => {
+          if (disposed || !instance) return
+          instance.goToAndPlay(frameRef.current, true)
+          setReadySrc(src)
         }
+        instance.addEventListener('DOMLoaded', ready)
+        instance.addEventListener('data_failed', fail)
+        instance.addEventListener('error', fail)
+        if (instance.isLoaded) ready()
       })
+      .catch(fail)
 
     return () => {
-      destroyed = true
-      cancelled = true
-      instance?.destroy()
-      instance = null
-      if (containerRef.current) containerRef.current.innerHTML = ''
+      disposed = true
+      abort.abort()
+      if (instance) {
+        frameRef.current = instance.currentFrame
+        instance.destroy()
+      }
+      if (playerRef.current === instance) playerRef.current = null
+      container.replaceChildren()
     }
-  }, [animationSrc, speed])
+  }, [src, reduced])
 
-  if (reduced || failed) {
-    return <StaticMark src={staticSrc} pixelSize={px} label={label} />
-  }
-
+  const animated = !reduced && readySrc === src
   return (
-    <div className={label ? 'flex flex-col items-center gap-3' : 'flex flex-col items-center'}>
+    <div className={`flex max-w-full flex-col items-center gap-3 ${className ?? ''}`}>
       <div
-        ref={containerRef}
-        role="img"
-        aria-label={label ?? 'Loading'}
-        style={{ width: px, height: px }}
-        className={className}
-      />
-      {label && (
-        <p role="status" className="text-sm text-muted">
-          {label}
-        </p>
-      )}
+        aria-hidden="true"
+        className="relative aspect-square max-w-full shrink-0"
+        style={{ width: px }}
+      >
+        <img
+          src={icon}
+          alt=""
+          width={px}
+          height={px}
+          draggable={false}
+          className="h-full w-full object-contain p-[5.882353%]"
+          style={{ visibility: animated ? 'hidden' : 'visible' }}
+        />
+        <div
+          ref={containerRef}
+          className="absolute inset-0"
+          style={{ visibility: animated ? 'visible' : 'hidden' }}
+        />
+      </div>
+      <p role="status" className={label ? 'text-center text-sm text-muted' : 'sr-only'}>
+        {label ?? 'Loading…'}
+      </p>
     </div>
   )
 }
