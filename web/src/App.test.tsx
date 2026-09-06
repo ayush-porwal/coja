@@ -7,7 +7,7 @@ import { currentPath, renderAt } from './test/render'
 it('shows a splash while the setup status loads', () => {
   installMockApi({ 'GET /api/setup/status': () => new Promise(() => {}) })
   renderAt('/')
-  expect(screen.getByRole('img', { name: 'Loading coja' })).toBeDefined()
+  expect(screen.getByRole('status').textContent).toBe('Loading coja')
   expect(screen.getByText('Loading coja')).toBeDefined()
   expect(screen.queryByRole('heading')).toBeNull()
 })
@@ -27,7 +27,7 @@ it('redirects to /setup when gh is broken, even after setup was completed', asyn
     }),
   })
   renderAt('/p/p1')
-  expect(await screen.findByRole('heading', { name: 'Set up coja' })).toBeDefined()
+  expect(await screen.findByRole('heading', { name: 'Settings' })).toBeDefined()
   expect(currentPath()).toBe('/setup')
 })
 
@@ -45,7 +45,7 @@ it('stays on / when setup is complete', async () => {
 it('lets a completed setup visit /setup without bouncing away', async () => {
   installMockApi({ 'GET /api/setup/status': setupStatus() })
   renderAt('/setup')
-  expect(await screen.findByRole('heading', { name: 'Set up coja' })).toBeDefined()
+  expect(await screen.findByRole('heading', { name: 'Settings' })).toBeDefined()
   expect(currentPath()).toBe('/setup')
 })
 
@@ -60,7 +60,8 @@ it('shows an error with retry when the server is unreachable', async () => {
   renderAt('/')
   const alert = await screen.findByRole('alert')
   expect(alert.textContent).toContain("coja can't reach its server")
-  expect(alert.textContent).toContain('Failed to fetch')
+  // The client maps raw network failures onto an actionable message.
+  expect(alert.textContent).toContain('Cannot reach the coja server')
 
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   expect(await screen.findByRole('heading', { name: 'Projects' })).toBeDefined()
