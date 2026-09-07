@@ -39,7 +39,7 @@ export function BootGuard({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
-function Splash() {
+export function Splash() {
   // Reads the persisted palette + OS appearance directly: the theme provider
   // mounts later and the splash must be on-theme from the first frame.
   let paletteId = 'mulberry'

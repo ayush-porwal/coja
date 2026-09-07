@@ -594,6 +594,7 @@ export function mapSummary(pr: q.RawPrSummary): PullRequestSummary {
     updatedAt: pr.updatedAt,
     createdAt: pr.createdAt,
     isDraft: pr.isDraft,
+    state: pr.state ?? 'OPEN',
     url: pr.url,
     additions: pr.additions,
     deletions: pr.deletions,
@@ -735,7 +736,8 @@ const quote = (value: string): string =>
  * hex token doubles as a commit-SHA search, which GitHub handles natively.
  */
 export function buildSearchQuery(repo: RepoRef, filter?: PrListFilter): string {
-  const parts = [`repo:${repo.owner}/${repo.repo}`, 'is:pr', 'is:open']
+  const parts = [`repo:${repo.owner}/${repo.repo}`, 'is:pr']
+  if (filter?.state !== 'all') parts.push(`is:${filter?.state ?? 'open'}`)
   const text = filter?.text?.trim()
   if (text) {
     // A bare hex SHA must go WITHOUT `in:title`: GitHub matches it to the PR
@@ -769,5 +771,6 @@ export function filterKey(repo: RepoRef, filter?: PrListFilter): string {
     f.head ?? '',
     f.base ?? '',
     f.draft === undefined ? '' : String(f.draft),
+    f.state ?? '',
   ].join('|')
 }

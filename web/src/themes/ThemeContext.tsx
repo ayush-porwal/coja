@@ -13,6 +13,7 @@ import { usePersistedState } from '../pr/usePersistedState'
 import {
   applyTypography,
   readTypographyPrefs,
+  TYPOGRAPHY_DEFAULTS,
   type TypographyPrefs,
   writeTypographyPrefs,
 } from '../typography'
@@ -72,7 +73,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyTypography(next)
   }, [])
   const resetTypography = useCallback(() => {
-    setTypography(readTypographyPrefs())
+    setTypography({ ...TYPOGRAPHY_DEFAULTS })
   }, [setTypography])
   const treeStyles = useMemo(() => treeStylesFor(palette, appearance), [palette, appearance])
 
