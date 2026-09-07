@@ -12,6 +12,9 @@
  * makes every `item.top` wrong, so jumps and `scrollTo({ type: 'line' })` drift
  * by `rows × delta`. The metrics and the CSS variables below come from the same
  * numbers so they cannot diverge again.
+ *
+ * `patches/@pierre__diffs@1.4.0.patch` preserves those estimates before first
+ * paint. The epoch-based recovery below remains a bounded fallback.
  */
 import {
   type CodeViewLayout,
@@ -70,17 +73,18 @@ export const DEFAULT_DIFF_METRICS = diffMetricsForFontSize(DIFF_FONT_SIZE)
 /** Space around and between items in the CodeView scroller. */
 export const DIFF_LAYOUT: CodeViewLayout = { paddingTop: 12, paddingBottom: 12, gap: 12 }
 
-/** Metrics for the default 12.5px diff font, with the heal behavior applied. */
-export function diffItemMetrics(layoutEpoch: number): VirtualFileMetrics {
-  return layoutEpoch % 2 === 0
-    ? { ...DEFAULT_DIFF_METRICS.itemMetrics }
-    : { ...DEFAULT_DIFF_METRICS.itemMetrics, paddingTop: 0 }
+/** Invalidate CodeView's layout without changing the selected typography's geometry. */
+export function diffItemMetrics(
+  layoutEpoch: number,
+  metrics: VirtualFileMetrics = DEFAULT_DIFF_METRICS.itemMetrics,
+): VirtualFileMetrics {
+  return layoutEpoch % 2 === 0 ? { ...metrics } : { ...metrics, paddingTop: 0 }
 }
 
 /**
  * True when CodeView just painted an item whose virtual height is zero.
  *
- * That state is a library bug: when an item's first paint is deferred (the
+ * That state is a library bug (prevented by our pinned dependency patch): when an item's first paint is deferred (the
  * highlighter has not attached its grammar yet), the sticky container's
  * ResizeObserver runs `reconcileHeights()` on it before it has rendered, which
  * sets the height to 0 — and, for files without annotations, nothing ever

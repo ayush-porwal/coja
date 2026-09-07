@@ -30,6 +30,7 @@ import { CommentThread } from './CommentThread'
 import {
   DIFF_LAYOUT,
   DIFF_THEME,
+  diffItemMetrics,
   diffMetricsForFontSize,
   isZeroHeightRender,
   languagesForPaths,
@@ -388,6 +389,10 @@ export function DiffView({
   // item painted with a zero virtual height; coalesced per frame and at most once per
   // item version so a persistent zero can never loop.
   const [layoutEpoch, setLayoutEpoch] = useState(0)
+  const itemMetrics = useMemo(
+    () => diffItemMetrics(layoutEpoch, diffMetrics.itemMetrics),
+    [layoutEpoch, diffMetrics.itemMetrics],
+  )
   const healedRenders = useRef(new Set<string>())
   const healFrame = useRef<number | null>(null)
   const queueLayoutHeal = () => {
@@ -554,7 +559,7 @@ export function DiffView({
       enableGutterUtility: true,
       lineHoverHighlight: 'both',
       layout: DIFF_LAYOUT,
-      itemMetrics: diffMetrics.itemMetrics,
+      itemMetrics,
       onGutterUtilityClick: (range: SelectedLineRange, context: { item: Item }) =>
         gutterClick.current(range, context.item.id),
       onPostRender: (
@@ -564,7 +569,7 @@ export function DiffView({
         context: PostRenderContext,
       ) => postRender.current(phase, context),
     }),
-    [diffStyle, appearance, diffMetrics.itemMetrics],
+    [diffStyle, appearance, itemMetrics],
   )
 
   // --- selection popover actions ---------------------------------------------------------

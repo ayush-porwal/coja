@@ -16,7 +16,7 @@ const badgeClass =
   'rounded-full border px-1.5 py-px text-[11px] font-medium leading-4 border-edge-strong text-muted'
 
 const textareaClass =
-  'w-full resize-y rounded border-edge-strong bg-card px-2 py-1.5 text-sm text-ink outline-none focus:border-accent'
+  'w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-sm text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus'
 
 /**
  * A GitHub review thread rendered inline under its diff line (light DOM, so
@@ -47,7 +47,7 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
   return (
     <section
       aria-label={`Review thread on ${thread.path}`}
-      className="my-1 rounded-md border border-edge bg-card text-sm shadow-sm"
+      className="my-1 min-w-0 rounded-md border border-edge bg-card font-sans text-sm shadow-sm"
     >
       {showHeader && (
         <header className="flex flex-wrap items-center gap-2 border-edge border-b px-3 py-1.5 text-xs text-muted">

@@ -136,6 +136,8 @@
 @custom-variant dark (&:where([data-coja-appearance="dark"], [data-coja-appearance="dark"] *));
 
 @theme inline {
+  --font-sans: var(--coja-ui-font);
+  --font-mono: var(--coja-code-font);
   --color-canvas: var(--coja-canvas);
   --color-chrome: var(--coja-chrome);
   --color-card: var(--coja-card);
