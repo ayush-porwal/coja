@@ -36,14 +36,19 @@ describe('PanelToggles', () => {
 
   it('badges the collapsed tree toggle with the thread count and the AI toggle with chips', () => {
     renderToggles({ treeOpen: false, aiOpen: false, threadCount: 3, chipCount: 1 })
-    expect(screen.getByTitle(/Toggle file tree/).textContent).toContain('3 comment threads')
-    expect(screen.getByTitle(/Toggle AI panel/).textContent).toContain('1 context chips')
+    // The badge glyph is aria-hidden, so the count must reach the accessible name.
+    expect(screen.getByRole('button', { name: /3 comment threads/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /1 context chips/ })).toBeTruthy()
+    expect(screen.getByTitle(/Toggle file tree/).textContent).toContain('3')
+    expect(screen.getByTitle(/Toggle AI panel/).textContent).toContain('1')
   })
 
   it('hides badges while the panel is open — the content speaks for itself', () => {
     renderToggles({ treeOpen: true, aiOpen: true, threadCount: 3, chipCount: 1 })
-    expect(screen.getByTitle(/Toggle file tree/).textContent).not.toContain('comment threads')
-    expect(screen.getByTitle(/Toggle AI panel/).textContent).not.toContain('context chips')
+    expect(screen.queryByTitle(/Toggle file tree/)?.textContent).not.toContain('comment threads')
+    expect(screen.queryByTitle(/Toggle AI panel/)?.textContent).not.toContain('context chips')
+    expect(screen.queryByRole('button', { name: /comment threads/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /context chips/ })).toBeNull()
   })
 
   it('reports presses', () => {

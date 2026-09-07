@@ -9,7 +9,9 @@ interface PanelTogglesProps {
    * Attention signals for the collapsed states: comment threads in the PR
    * (badge on the file-tree toggle) and context chips waiting in the AI
    * composer (badge on the AI toggle). A badge only shows while its panel is
-   * collapsed — when the panel is open its content speaks for itself.
+   * collapsed — when the panel is open its content speaks for itself. The
+   * count is folded into the toggle's accessible name because the badge
+   * glyph itself is aria-hidden.
    */
   threadCount: number
   chipCount: number
@@ -39,6 +41,11 @@ export function PanelToggles({
   threadCount,
   chipCount,
 }: PanelTogglesProps) {
+  // The badge glyph is aria-hidden, so the count has to live in the accessible
+  // name — an explicit aria-label would otherwise override the button's
+  // descendant text and silence the badge for assistive technology.
+  const treeBadge = treeOpen ? 0 : threadCount
+  const aiBadge = aiOpen ? 0 : chipCount
   return (
     <fieldset
       className="flex shrink-0 items-center gap-0.5 border-0 p-0"
@@ -48,21 +55,23 @@ export function PanelToggles({
         id="coja-toggle-tree"
         open={treeOpen}
         onPress={onToggleTree}
-        label="Toggle file tree"
+        label={
+          treeBadge > 0 ? `Toggle file tree, ${threadCount} comment threads` : 'Toggle file tree'
+        }
         shortcut={panelShortcut(false)}
       >
         <PanelGlyph side="left" open={treeOpen} />
-        <ToggleBadge count={treeOpen ? 0 : threadCount} label="comment threads" />
+        <ToggleBadge count={treeBadge} />
       </PanelToggle>
       <PanelToggle
         id="coja-toggle-ai"
         open={aiOpen}
         onPress={onToggleAi}
-        label="Toggle AI panel"
+        label={aiBadge > 0 ? `Toggle AI panel, ${chipCount} context chips` : 'Toggle AI panel'}
         shortcut={panelShortcut(true)}
       >
         <PanelGlyph side="right" open={aiOpen} />
-        <ToggleBadge count={aiOpen ? 0 : chipCount} label="context chips" />
+        <ToggleBadge count={aiBadge} />
       </PanelToggle>
     </fieldset>
   )
@@ -134,20 +143,16 @@ function PanelGlyph({ side, open }: { side: 'left' | 'right'; open: boolean }) {
   )
 }
 
-function ToggleBadge({ count, label }: { count: number; label: string }) {
+/** Visual-only attention badge; the count is spoken by the toggle's label. */
+function ToggleBadge({ count }: { count: number }) {
   if (count <= 0) return null
   const shown = count > 99 ? '99+' : count
   return (
-    <>
-      <span
-        aria-hidden="true"
-        className="-right-0.5 -top-0.5 absolute flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 font-semibold text-[9px] leading-none text-accent-ink"
-      >
-        {shown}
-      </span>
-      <span className="sr-only">
-        {count} {label}
-      </span>
-    </>
+    <span
+      aria-hidden="true"
+      className="-right-0.5 -top-0.5 absolute flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 font-semibold text-[9px] leading-none text-accent-ink"
+    >
+      {shown}
+    </span>
   )
 }
