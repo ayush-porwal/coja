@@ -27,7 +27,9 @@ describe('deferred CodeView rendering', () => {
         expect(file.reconcileHeights()).toBe(false)
         expect(file.getVirtualizedHeight()).toBe(estimate)
       }
-      expect(file.getLinePosition(1100, 'additions')?.top).toBeGreaterThan(1000 * metrics.lineHeight)
+      expect(file.getLinePosition(1100, 'additions')?.top).toBeGreaterThan(
+        1000 * metrics.lineHeight,
+      )
       file.cleanUp()
       view.cleanUp()
     },

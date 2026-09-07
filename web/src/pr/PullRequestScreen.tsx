@@ -104,61 +104,82 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   const showTree = compact ? mobilePanel === 'tree' : treeOpen
   const showAi = compact ? mobilePanel === 'ai' : aiOpen
 
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 767px)')
-    const update = () => setCompact(media.matches)
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [])
-
   const treeAside = useRef<HTMLElement | null>(null)
   const aiAside = useRef<HTMLElement | null>(null)
   const centerPane = useRef<HTMLElement | null>(null)
 
+  // Hiding a focused panel makes the browser drop focus to <body> before any
+  // effect can observe where it was (jsdom doesn't model this), so ownership
+  // is captured at the moment a hide is triggered and spent by the effect below.
+  const panelOwnsFocus = useRef(false)
+  const notePanelFocus = useCallback(() => {
+    const active = document.activeElement
+    panelOwnsFocus.current = Boolean(
+      active !== document.body &&
+        (treeAside.current?.contains(active) || aiAside.current?.contains(active)),
+    )
+  }, [])
+
   useEffect(() => {
-    const focused = document.activeElement
-    if (
-      compact &&
-      mobilePanel === null &&
-      focused &&
-      (treeAside.current?.contains(focused) || aiAside.current?.contains(focused))
-    ) {
+    const media = window.matchMedia('(max-width: 767px)')
+    // Crossing the breakpoint can hide a panel (persisted-open panels collapse
+    // to `mobilePanel: null`), so capture focus ownership before `setCompact`.
+    const update = () => {
+      notePanelFocus()
+      setCompact(media.matches)
+    }
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [notePanelFocus])
+
+  useEffect(() => {
+    if (compact && mobilePanel === null && panelOwnsFocus.current) {
+      panelOwnsFocus.current = false
       centerPane.current?.focus()
     }
   }, [compact, mobilePanel])
 
   // Collapsing a panel that holds the keyboard focus would drop focus onto
-  // <body>; park it on the panel's toggle instead.
+  // <body>; park it on the panel's toggle instead (and cancel the center-pane
+  // hand-off — the toggle keeps focus).
   const moveFocusToToggle = useCallback((aside: HTMLElement | null, toggleId: string) => {
     const active = document.activeElement
     if (aside && active !== null && active !== document.body && aside.contains(active)) {
+      panelOwnsFocus.current = false
       document.getElementById(toggleId)?.focus()
     }
   }, [])
   const toggleTree = useCallback(() => {
+    notePanelFocus()
     moveFocusToToggle(treeAside.current, 'coja-toggle-tree')
     if (compact) setMobilePanel((panel) => (panel === 'tree' ? null : 'tree'))
     else setTreeOpen((open) => !open)
-  }, [compact, moveFocusToToggle, setTreeOpen])
+  }, [compact, moveFocusToToggle, notePanelFocus, setTreeOpen])
   const toggleAi = useCallback(() => {
+    notePanelFocus()
     moveFocusToToggle(aiAside.current, 'coja-toggle-ai')
     if (compact) setMobilePanel((panel) => (panel === 'ai' ? null : 'ai'))
     else setAiOpen((open) => !open)
-  }, [compact, moveFocusToToggle, setAiOpen])
+  }, [compact, moveFocusToToggle, notePanelFocus, setAiOpen])
   usePanelShortcuts({ onToggleTree: toggleTree, onToggleAi: toggleAi })
 
-  const openFile = useCallback((path: string, line?: number, side?: ScrollRequest['side']) => {
-    nonce.current += 1
-    setSelection({ kind: 'file', path })
-    setScrollRequest({ path, line, side, nonce: nonce.current })
-    setMobilePanel(null)
-  }, [])
+  const openFile = useCallback(
+    (path: string, line?: number, side?: ScrollRequest['side']) => {
+      nonce.current += 1
+      notePanelFocus()
+      setSelection({ kind: 'file', path })
+      setScrollRequest({ path, line, side, nonce: nonce.current })
+      setMobilePanel(null)
+    },
+    [notePanelFocus],
+  )
 
   // The top bar's Changes segments: switch the layout, and leave Conversation
   // for the first changed file (the top of the diff) without forcing a jump
   // when the reviewer is already reading deeper into the diff.
   const selectChanges = useCallback(
     (style: DiffStyle) => {
+      notePanelFocus()
       setMobilePanel(null)
       setDiffStyle(style)
       setSelection((prev) => {
@@ -167,12 +188,13 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
         return first ? { kind: 'file', path: first } : prev
       })
     },
-    [pr.data, setDiffStyle],
+    [notePanelFocus, pr.data, setDiffStyle],
   )
   const selectConversation = useCallback(() => {
+    notePanelFocus()
     setSelection(OVERVIEW)
     setMobilePanel(null)
-  }, [])
+  }, [notePanelFocus])
 
   // Citations in AI output navigate the diff; "Ask AI" reveals the panel.
   useEffect(
