@@ -4,6 +4,7 @@ import type { Forge, RepoRef } from '../forge/forge.js'
 import { getProject } from '../projects/store.js'
 import {
   isEmptyFilter,
+  isPrListState,
   type PrListFilter,
   type Project,
   type PullRequestDetail,
@@ -64,9 +65,12 @@ export function registerPullRoutes(app: Hono, ctx: ServerContext, deps: { forge:
     // working for API callers that prefer structured input.
     const q = clean(c.req.query('q'))
     const draftParam = c.req.query('draft')
+    const stateParam = clean(c.req.query('state'))
+    if (!q && stateParam && !isPrListState(stateParam)) throw badRequest('invalid pull request state')
     const filter: PrListFilter = q
       ? parsePrQuery(q)
       : {
+          ...(isPrListState(stateParam) ? { state: stateParam } : {}),
           text: clean(c.req.query('text')),
           author: clean(c.req.query('author')),
           head: clean(c.req.query('head')),

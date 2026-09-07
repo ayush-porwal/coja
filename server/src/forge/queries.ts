@@ -15,7 +15,7 @@
 
 const PR_SUMMARY = /* GraphQL */ `
 fragment PrSummary on PullRequest {
-  id number title url isDraft createdAt updatedAt
+  id number title url isDraft state createdAt updatedAt
   additions deletions changedFiles
   author { login avatarUrl }
   headRefName baseRefName headRefOid baseRefOid
@@ -343,6 +343,7 @@ export interface RawPrSummary {
   number: number
   title: string
   url: string
+  state?: 'OPEN' | 'CLOSED' | 'MERGED'
   isDraft: boolean
   createdAt: string
   updatedAt: string

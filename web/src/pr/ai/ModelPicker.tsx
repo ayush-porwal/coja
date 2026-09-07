@@ -118,9 +118,9 @@ export function EffortPicker({ efforts, value, onChange }: EffortPickerProps) {
             }}
             title={level.description}
           >
-            <span className="min-w-0 flex-1 truncate capitalize">{level.effort}</span>
+            <span className="shrink-0 capitalize">{level.effort}</span>
             {level.description && (
-              <span className="ml-2 min-w-0 truncate text-[10px] text-faint">
+              <span className="ml-2 min-w-0 flex-1 truncate text-[10px] text-faint">
                 {level.description}
               </span>
             )}

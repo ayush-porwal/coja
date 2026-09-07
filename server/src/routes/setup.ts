@@ -68,10 +68,14 @@ export function registerSetupRoutes(app: Hono, ctx: ServerContext, deps: SetupRo
   }
 
   const status = async (): Promise<SetupStatus> => {
-    const [gh, chatgpt] = await Promise.all([ghStatus(), chatgptStatus()])
+    const [gh, chatgpt, customProviders] = await Promise.all([
+      ghStatus(),
+      chatgptStatus(),
+      Promise.all(listCustomProviders(ctx.db).map(decorate)),
+    ])
     return {
       gh,
-      customProviders: await Promise.all(listCustomProviders(ctx.db).map(decorate)),
+      customProviders,
       secrets: { backend: secrets.backend },
       setupComplete: settings.get(ctx.db, SETUP_COMPLETE_KEY) === '1',
       chatgpt,

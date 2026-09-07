@@ -350,6 +350,8 @@ export interface PullRequestSummary {
   updatedAt: string
   createdAt: string
   isDraft: boolean
+  /** Absent in older cached responses. */
+  state?: 'OPEN' | 'CLOSED' | 'MERGED'
   url: string
   additions: number
   deletions: number
@@ -442,11 +444,19 @@ export interface PendingReview {
 }
 
 /**
- * GitHub-style list filters, applied server-side across ALL open PRs (not
+ * GitHub-style list filters, applied server-side across matching PRs (not
  * just the loaded page) via GitHub's search API. All fields optional;
  * an empty filter uses the plain (updated-first) list query.
  */
+export type PrListState = 'open' | 'closed' | 'merged' | 'all'
+
+export function isPrListState(value: unknown): value is PrListState {
+  return value === 'open' || value === 'closed' || value === 'merged' || value === 'all'
+}
+
 export interface PrListFilter {
+  /** Defaults to open; closed includes merged PRs, matching GitHub. */
+  state?: PrListState
   /** Title text (word tokens, `in:title`); a bare hex SHA token matches by commit. */
   text?: string
   /** Author's GitHub login (exact, `author:`). */
@@ -466,7 +476,8 @@ export function isEmptyFilter(filter: PrListFilter): boolean {
     (filter.author ?? '') === '' &&
     (filter.head ?? '') === '' &&
     (filter.base ?? '') === '' &&
-    filter.draft === undefined
+    filter.draft === undefined &&
+    filter.state === undefined
   )
 }
 
@@ -474,7 +485,7 @@ export interface PrQueryToken {
   raw: string
   start: number
   end: number
-  field?: 'author' | 'head' | 'base' | 'draft' | 'scope'
+  field?: 'author' | 'head' | 'base' | 'draft' | 'state' | 'scope'
   value?: string | boolean
 }
 
@@ -486,7 +497,7 @@ export function tokenizePrQuery(raw: string): PrQueryToken[] {
       start: match.index,
       end: match.index + match[0].length,
     }
-    const qualifier = /^(author|head|base|draft|is):(.+)$/i.exec(token.raw)
+    const qualifier = /^(author|head|base|draft|is|state):(.+)$/i.exec(token.raw)
     if (!qualifier) return token
     const key = qualifier[1]?.toLowerCase()
     const encoded = qualifier[2] ?? ''
@@ -502,8 +513,10 @@ export function tokenizePrQuery(raw: string): PrQueryToken[] {
     } else if (key === 'is' && /^(draft|ready)$/i.test(value)) {
       token.field = 'draft'
       token.value = value.toLowerCase() === 'draft'
-    } else if (key === 'is' && /^(open|pr)$/i.test(value)) {
-      // This screen always lists open pull requests, including drafts.
+    } else if ((key === 'is' || key === 'state') && isPrListState(value.toLowerCase())) {
+      token.field = 'state'
+      token.value = value.toLowerCase()
+    } else if (key === 'is' && /^pr$/i.test(value)) {
       token.field = 'scope'
     }
     return token
@@ -515,7 +528,8 @@ export function parsePrQuery(raw: string): PrListFilter {
   const filter: PrListFilter = {}
   const text: string[] = []
   for (const token of tokenizePrQuery(raw)) {
-    if (token.field === 'draft') filter.draft = token.value as boolean
+    if (token.field === 'state') filter.state = token.value as PrListState
+    else if (token.field === 'draft') filter.draft = token.value as boolean
     else if (token.field === 'author' || token.field === 'head' || token.field === 'base') {
       filter[token.field] = token.value as string
     } else if (!token.field) text.push(token.raw)
@@ -531,6 +545,7 @@ export function parsePrQuery(raw: string): PrListFilter {
 export function formatPrQuery(filter: PrListFilter): string {
   const parts: string[] = []
   const encode = (value: string) => (/[\s"\\]/.test(value) ? JSON.stringify(value) : value)
+  if (filter.state) parts.push(`is:${filter.state}`)
   if (filter.author) parts.push(`author:${encode(filter.author)}`)
   if (filter.head) parts.push(`head:${encode(filter.head)}`)
   if (filter.base) parts.push(`base:${encode(filter.base)}`)
@@ -539,13 +554,13 @@ export function formatPrQuery(filter: PrListFilter): string {
   return parts.join(' ')
 }
 
-/** One page of a project's open PR list (GitHub-style pagination). */
+/** One page of a project's PR list (GitHub-style pagination). */
 export interface PullRequestPage {
   items: PullRequestSummary[]
   /** 1-based page number served. */
   page: number
   perPage: number
-  /** Total open PRs in the repository. */
+  /** Total PRs matching the filter. */
   total: number
   totalPages: number
 }
