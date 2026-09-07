@@ -1,0 +1,27 @@
+diff --git a/dist/components/VirtualizedFile.js b/dist/components/VirtualizedFile.js
+index 9694a1eba9fb19e1f0baf0f05245ec6238216f43..59295821928bbf5fe8f73c2deef3f4d11976fdc2 100644
+--- a/dist/components/VirtualizedFile.js
++++ b/dist/components/VirtualizedFile.js
+@@ -115,6 +115,8 @@ var VirtualizedFile = class extends File {
+ 	reconcileHeights() {
+ 		let hasHeightChange = false;
+ 		if (this.fileContainer == null || this.getLayoutFile() == null) {
++			// Preserve CodeView's prepared layout while the first paint is pending.
++			if (this.isAdvancedMode()) return false;
+ 			if (this.height !== 0) hasHeightChange = true;
+ 			this.height = 0;
+ 			return hasHeightChange;
+diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/VirtualizedFileDiff.js
+index ca7e1e48e1ae3ecbef664de6ad4010f914bd5089..d27138b394255fc56c3f5edc47234df00a145365 100644
+--- a/dist/components/VirtualizedFileDiff.js
++++ b/dist/components/VirtualizedFileDiff.js
+@@ -160,6 +160,9 @@ var VirtualizedFileDiff = class extends FileDiff {
+ 		const { options: { overflow = "scroll" }, cache: { ghostTextRowsByIndex }, metrics: { lineHeight } } = this;
+ 		const fileDiff = this.getRenderedDiff();
+ 		if (this.fileContainer == null || fileDiff == null) {
++			// CodeView already estimated this item's height. A deferred first paint
++			// is not an empty file: keep its space until there is DOM to measure.
++			if (this.isAdvancedMode()) return false;
+ 			if (this.height !== 0) hasHeightChange = true;
+ 			this.height = 0;
+ 			return hasHeightChange;

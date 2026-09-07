@@ -113,7 +113,7 @@ export function TypographySection() {
         Programming ligatures
       </label>
 
-      <fieldset>
+      <fieldset className="min-w-0">
         <legend className="mb-2 text-xs font-medium text-muted">Preview</legend>
         <div className="rounded-md border border-edge p-3 text-sm">
           <p>Browse pull requests — Review #2014 — files changed 6</p>

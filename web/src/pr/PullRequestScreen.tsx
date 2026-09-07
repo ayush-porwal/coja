@@ -99,9 +99,33 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   const [reviewOpen, setReviewOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [chipCount, setChipCount] = useState(0)
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 767px)').matches)
+  const [mobilePanel, setMobilePanel] = useState<'tree' | 'ai' | null>(null)
+  const showTree = compact ? mobilePanel === 'tree' : treeOpen
+  const showAi = compact ? mobilePanel === 'ai' : aiOpen
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)')
+    const update = () => setCompact(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
 
   const treeAside = useRef<HTMLElement | null>(null)
   const aiAside = useRef<HTMLElement | null>(null)
+  const centerPane = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const focused = document.activeElement
+    if (
+      compact &&
+      mobilePanel === null &&
+      focused &&
+      (treeAside.current?.contains(focused) || aiAside.current?.contains(focused))
+    ) {
+      centerPane.current?.focus()
+    }
+  }, [compact, mobilePanel])
 
   // Collapsing a panel that holds the keyboard focus would drop focus onto
   // <body>; park it on the panel's toggle instead.
@@ -113,18 +137,21 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   }, [])
   const toggleTree = useCallback(() => {
     moveFocusToToggle(treeAside.current, 'coja-toggle-tree')
-    setTreeOpen((open) => !open)
-  }, [moveFocusToToggle, setTreeOpen])
+    if (compact) setMobilePanel((panel) => (panel === 'tree' ? null : 'tree'))
+    else setTreeOpen((open) => !open)
+  }, [compact, moveFocusToToggle, setTreeOpen])
   const toggleAi = useCallback(() => {
     moveFocusToToggle(aiAside.current, 'coja-toggle-ai')
-    setAiOpen((open) => !open)
-  }, [moveFocusToToggle, setAiOpen])
+    if (compact) setMobilePanel((panel) => (panel === 'ai' ? null : 'ai'))
+    else setAiOpen((open) => !open)
+  }, [compact, moveFocusToToggle, setAiOpen])
   usePanelShortcuts({ onToggleTree: toggleTree, onToggleAi: toggleAi })
 
   const openFile = useCallback((path: string, line?: number, side?: ScrollRequest['side']) => {
     nonce.current += 1
     setSelection({ kind: 'file', path })
     setScrollRequest({ path, line, side, nonce: nonce.current })
+    setMobilePanel(null)
   }, [])
 
   // The top bar's Changes segments: switch the layout, and leave Conversation
@@ -132,6 +159,7 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   // when the reviewer is already reading deeper into the diff.
   const selectChanges = useCallback(
     (style: DiffStyle) => {
+      setMobilePanel(null)
       setDiffStyle(style)
       setSelection((prev) => {
         if (prev.kind === 'file') return prev
@@ -141,14 +169,24 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
     },
     [pr.data, setDiffStyle],
   )
-  const selectConversation = useCallback(() => setSelection(OVERVIEW), [])
+  const selectConversation = useCallback(() => {
+    setSelection(OVERVIEW)
+    setMobilePanel(null)
+  }, [])
 
   // Citations in AI output navigate the diff; "Ask AI" reveals the panel.
   useEffect(
     () => bridge.onScrollToLine((target) => openFile(target.path, target.line, target.side)),
     [openFile],
   )
-  useEffect(() => bridge.onAttachSelection(() => setAiOpen(true)), [setAiOpen])
+  useEffect(
+    () =>
+      bridge.onAttachSelection(() => {
+        if (compact) setMobilePanel('ai')
+        else setAiOpen(true)
+      }),
+    [compact, setAiOpen],
+  )
 
   useEffect(() => {
     if (!toast) return
@@ -171,9 +209,9 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
         diffStyle={diffStyle}
         onConversation={selectConversation}
         onChanges={selectChanges}
-        treeOpen={treeOpen}
+        treeOpen={showTree}
         onToggleTree={toggleTree}
-        aiOpen={aiOpen}
+        aiOpen={showAi}
         onToggleAi={toggleAi}
         threadCount={detail?.threads.length ?? 0}
         chipCount={chipCount}
@@ -187,9 +225,9 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
               narrow window can never squeeze the diff away — CSS recomputes live on resize. */}
           <aside
             ref={treeAside}
-            hidden={!treeOpen}
-            style={{ width: `min(${treeWidth}px, calc(50vw - 140px))` }}
-            className="flex shrink-0 flex-col border-edge border-r bg-panel"
+            hidden={!showTree}
+            style={{ width: compact ? '100%' : `min(${treeWidth}px, calc(50vw - 140px))` }}
+            className="flex min-w-0 shrink-0 flex-col border-edge border-r bg-panel"
             aria-label="File tree"
           >
             <Sidebar
@@ -197,11 +235,11 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
               threads={detail.threads}
               conversationCount={detail.conversation.length}
               selection={selection}
-              onSelectOverview={() => setSelection(OVERVIEW)}
+              onSelectOverview={selectConversation}
               onSelectFile={(path) => openFile(path)}
             />
           </aside>
-          {treeOpen && (
+          {showTree && !compact && (
             <PanelResizeHandle
               side="left"
               width={treeWidth}
@@ -212,7 +250,12 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
             />
           )}
 
-          <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <main
+            ref={centerPane}
+            tabIndex={-1}
+            hidden={compact && mobilePanel !== null}
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+          >
             {selection.kind === 'overview' ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <Overview detail={detail} />
@@ -236,7 +279,7 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
             )}
           </main>
 
-          {aiOpen && (
+          {showAi && !compact && (
             <PanelResizeHandle
               side="right"
               width={aiWidth}
@@ -249,9 +292,9 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
           {/* Kept mounted while collapsed so attached chips survive the toggle (same viewport cap as the tree). */}
           <aside
             ref={aiAside}
-            hidden={!aiOpen}
-            style={{ width: `min(${aiWidth}px, calc(50vw - 140px))` }}
-            className="flex shrink-0 flex-col border-edge border-l bg-panel"
+            hidden={!showAi}
+            style={{ width: compact ? '100%' : `min(${aiWidth}px, calc(50vw - 140px))` }}
+            className="flex min-w-0 shrink-0 flex-col border-edge border-l bg-panel"
             aria-label="AI panel"
           >
             <AiPanel
@@ -274,7 +317,7 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
               <button
                 type="button"
                 onClick={() => void pr.refetch()}
-                className="mt-3 rounded bg-danger px-3 py-1 font-medium text-xs text-white hover:opacity-90"
+                className="mt-3 rounded bg-danger-button px-3 py-1 font-medium text-xs text-status-button-ink hover:opacity-90"
               >
                 Retry
               </button>

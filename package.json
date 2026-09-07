@@ -28,6 +28,9 @@
   "pnpm": {
     "ignoredBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "patchedDependencies": {
+      "@pierre/diffs@1.4.0": "patches/@pierre__diffs@1.4.0.patch"
+    }
   }
 }

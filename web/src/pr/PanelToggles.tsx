@@ -83,6 +83,7 @@ function PanelToggle({ id, open, onPress, label, shortcut, children }: PanelTogg
       type="button"
       id={id}
       aria-pressed={open}
+      aria-label={`${label} (${shortcut})`}
       title={`${label} (${shortcut})`}
       onClick={onPress}
       className={cn(
