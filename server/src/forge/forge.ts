@@ -7,6 +7,7 @@ import type {
   PullRequestDetail,
   PullRequestPage,
   ReplyResponse,
+  RepositoryContributor,
   ReviewComment,
   SubmitReviewRequest,
   SubmitReviewResponse,
@@ -39,6 +40,7 @@ export interface PullRequestRefs {
  * Forge — see the invariant "the AI drafts, the human sends".
  */
 export interface Forge {
+  listContributors(repo: RepoRef): Promise<RepositoryContributor[]>
   viewer(): Promise<Actor>
 
   /**

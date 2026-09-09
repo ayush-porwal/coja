@@ -236,7 +236,7 @@ export function DirectoryPicker({ id, value, onChange, invalid }: DirectoryPicke
             )}
             {listing.isError && (
               <div className="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
-                <span className="min-w-0 break-words text-danger">
+                <span className="min-w-0 break-words text-danger-text">
                   Could not list {listedDir || 'this folder'}.
                 </span>
                 {home.data && (
@@ -327,7 +327,7 @@ function BrowserRow({
       <span className="min-w-0 flex-1 truncate font-mono">{entry.name}</span>
       {entry.hasGit && (
         <span
-          className="shrink-0 rounded-full border border-edge px-1.5 text-[11px] text-muted"
+          className="shrink-0 rounded-full border border-edge px-1.5 text-xs text-muted"
           title="Contains a .git folder"
         >
           repo

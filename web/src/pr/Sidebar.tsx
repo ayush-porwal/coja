@@ -155,13 +155,13 @@ export function Sidebar({
       >
         <span>Overview</span>
         <span
-          className="rounded-full bg-active px-1.5 text-[11px] leading-4 text-muted"
+          className="rounded-full bg-active px-1.5 text-xs leading-4 text-muted"
           title="Conversation items"
         >
           {conversationCount}
         </span>
       </button>
-      <div className="flex items-center justify-between px-3 py-1.5 font-medium text-[11px] text-muted">
+      <div className="flex items-center justify-between px-3 py-1.5 font-medium text-xs text-muted">
         <span>Files ({files.length})</span>
         <span title="Viewed files">
           {viewed.size}/{files.length} viewed
@@ -170,7 +170,7 @@ export function Sidebar({
       <FileTree
         model={model}
         aria-label="Changed files"
-        className="block min-h-0 flex-1 text-[12.5px]"
+        className="block min-h-0 flex-1 text-tree"
         style={treeStyles}
         onPointerDown={openFileFromPress}
       />

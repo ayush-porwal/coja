@@ -14,7 +14,7 @@ export function treeStylesFor(palette: CojaPalette, appearance: ThemeAppearance)
   return themeToTreeStyles({
     type: appearance,
     colors: {
-      'sideBar.background': v.panel,
+      'sideBar.background': v.canvas,
       'sideBar.foreground': v.ink,
       'sideBarSectionHeader.foreground': v.muted,
       'sideBar.border': v.panelEdge,

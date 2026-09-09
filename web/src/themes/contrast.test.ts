@@ -79,7 +79,6 @@ describe('chrome action contrast per theme', () => {
   for (const palette of PALETTES) {
     for (const appearance of ['light', 'dark'] as const) {
       it(`${palette.id} ${appearance}: links, selected labels and action buttons are readable`, () => {
-        const v = palette[appearance]
         const css = themeToCssProperties(palette, appearance) as Record<string, string>
         const cssColor = (name: string): string => {
           const value = css[name]
@@ -96,9 +95,25 @@ describe('chrome action contrast per theme', () => {
           'accentSoft',
         ] as const) {
           expect(
-            contrast(text, oklchToSrgb(v[surface])),
+            contrast(
+              text,
+              resolveColor(
+                cssColor(`--coja-${surface === 'accentSoft' ? 'accent-soft' : surface}`),
+              ),
+            ),
             `accent text on ${surface}`,
           ).toBeGreaterThanOrEqual(4.5)
+        }
+        for (const role of ['ok', 'danger', 'caution']) {
+          for (const surface of ['canvas', `${role}-soft`]) {
+            expect(
+              contrast(
+                resolveColor(cssColor(`--coja-${role}-text`)),
+                resolveColor(cssColor(`--coja-${surface}`)),
+              ),
+              `${role} text on ${surface}`,
+            ).toBeGreaterThanOrEqual(4.5)
+          }
         }
         for (const role of ['ok', 'danger']) {
           expect(
@@ -116,11 +131,10 @@ describe('chrome action contrast per theme', () => {
 
 /** The changed-row fills, from apply.ts's t3code formulas. */
 function fillsFor(palette: CojaPalette, appearance: ThemeAppearance) {
-  const v = palette[appearance]
-  const row = appearance === 'dark' ? 70 : 50
+  const css = themeToCssProperties(palette, appearance) as Record<string, string>
   return {
-    addition: mixSrgb(oklchToSrgb(v.code), oklchToSrgb(v.ok), row),
-    deletion: mixSrgb(oklchToSrgb(v.code), oklchToSrgb(v.danger), row),
+    addition: resolveColor(css['--diffs-bg-addition-override'] ?? ''),
+    deletion: resolveColor(css['--diffs-bg-deletion-override'] ?? ''),
   }
 }
 
@@ -129,7 +143,7 @@ describe('diff contrast per theme', () => {
     for (const appearance of ['light', 'dark'] as const) {
       it(`${palette.id} ${appearance}: diff text stays readable and fills stay visible`, () => {
         const v = palette[appearance]
-        const code = oklchToSrgb(v.code)
+        const code = oklchToSrgb(v.canvas)
         const ink = oklchToSrgb(v.codeInk)
         const { addition, deletion } = fillsFor(palette, appearance)
 
@@ -180,8 +194,8 @@ describe('diff contrast per theme', () => {
     for (const palette of PALETTES) {
       for (const appearance of ['light', 'dark'] as const) {
         const v = palette[appearance]
-        const codeL = parseOklch(v.code).L
-        const contextL = oklabL(mixSrgb(oklchToSrgb(v.code), oklchToSrgb(v.codeInk), 97))
+        const codeL = parseOklch(v.canvas).L
+        const contextL = oklabL(oklchToSrgb(v.canvas))
         const { addition, deletion } = fillsFor(palette, appearance)
         const additionShift = Math.abs(oklabL(addition) - codeL)
         const deletionShift = Math.abs(oklabL(deletion) - codeL)

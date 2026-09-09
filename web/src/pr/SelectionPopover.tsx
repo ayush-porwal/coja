@@ -56,7 +56,7 @@ export function SelectionPopover({
         ×
       </button>
       {error && (
-        <span role="alert" className="basis-full break-words text-xs text-danger">
+        <span role="alert" className="basis-full break-words text-xs text-danger-text">
           {error}
         </span>
       )}

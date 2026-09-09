@@ -137,7 +137,7 @@ const MessageView = memo(function MessageView({ message, paths, modelLabel }: Me
     <article aria-label="Assistant" className="min-w-0 text-ink">
       <MessageParts message={message} paths={paths} />
       {(model || createdAt) && (
-        <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
+        <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-faint">
           {model && (
             <span className="min-w-0 truncate" title={model}>
               {modelLabel(model)}

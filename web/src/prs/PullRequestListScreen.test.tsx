@@ -5,6 +5,7 @@ import { deferred, installMockApi, jsonError } from '../test/mockApi'
 import { renderAt } from '../test/render'
 
 const base = {
+  'GET /api/projects/p1/contributors': [],
   'GET /api/setup/status': setupStatus(),
   'GET /api/projects/p1': project({ id: 'p1', owner: 'octo', repo: 'repo' }),
 }
@@ -213,6 +214,120 @@ describe('windowedPages', () => {
 })
 
 describe('filter bar', () => {
+  it('loads closed PRs and renders their actual state, with distinct state queries', async () => {
+    const mock = installMockApi({
+      ...base,
+      'GET /api/projects/p1/prs': ({ url }) =>
+        pageOf([
+          pullRequest({
+            title: `${url.searchParams.get('state') ?? 'open'} result`,
+            state: 'MERGED',
+          }),
+        ]),
+    })
+    renderAt('/p/p1?q=is:closed')
+    await screen.findByRole('link', { name: 'closed result' })
+    expect(screen.getByRole('heading', { name: 'Closed pull requests' })).toBeDefined()
+    expect(screen.getByText('Merged', { selector: 'span' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+    await screen.findByRole('link', { name: 'all result' })
+    expect(mock.calls.some((c) => c.url.includes('state=all'))).toBe(true)
+  })
+
+  it('inserts suggestions using the keyboard and supports Escape without clearing the query', async () => {
+    const mock = installMockApi({ ...base, 'GET /api/projects/p1/prs': pageOf([pullRequest()]) })
+    renderAt('/p/p1')
+    await screen.findByRole('link', { name: 'Add the thing' })
+    const input = screen.getByRole('combobox', { name: 'Filter pull requests' }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'is:cl' } })
+    expect(screen.getByRole('option', { name: /is:closed/ })).toBeDefined()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input.value).toBe('is:closed ')
+    await waitFor(() => expect(mock.calls.some((c) => c.url.includes('state=closed'))).toBe(true))
+    fireEvent.change(input, { target: { value: 'is:closed author:' } })
+    expect(screen.getByRole('option', { name: /author:hubot/ })).toBeDefined()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input.value).toBe('is:closed author:')
+  })
+
+  it('ranks contributors before PR authors and deduplicates usernames', async () => {
+    installMockApi({
+      ...base,
+      'GET /api/projects/p1/contributors': [
+        { login: 'Julius', contributions: 900 },
+        { login: 'hubot', contributions: 10 },
+      ],
+      'GET /api/projects/p1/prs': pageOf([
+        pullRequest(),
+        pullRequest({ id: 'PR_2', number: 2, title: 'New author', author: { login: 'newcomer' } }),
+      ]),
+    })
+    renderAt('/p/p1')
+    await screen.findByRole('link', { name: 'New author' })
+    const input = screen.getByRole('combobox', { name: 'Filter pull requests' })
+    fireEvent.change(input, { target: { value: 'author:' } })
+    await screen.findByRole('option', { name: /author:Julius/ })
+    const options = screen.getAllByRole('option')
+    expect(options).toHaveLength(3)
+    expect(options[0]?.textContent).toContain('author:Julius')
+    expect(options[0]?.textContent).toContain('900 commits')
+    expect(options[2]?.textContent).toContain('author:newcomer')
+  })
+
+  it('lets keyboard navigation reach authors beyond the first nine suggestions', async () => {
+    installMockApi({
+      ...base,
+      'GET /api/projects/p1/prs': pageOf(
+        Array.from({ length: 12 }, (_, index) =>
+          pullRequest({
+            id: `PR_${index}`,
+            number: index + 1,
+            title: `PR ${index}`,
+            author: { login: index === 11 ? 'julius' : `author${index}` },
+          }),
+        ),
+      ),
+    })
+    renderAt('/p/p1')
+    await screen.findByRole('link', { name: 'PR 0' })
+    const input = screen.getByRole('combobox', { name: 'Filter pull requests' }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'author:' } })
+    expect(screen.getAllByRole('option')).toHaveLength(12)
+    for (let i = 0; i < 12; i++) fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(
+      screen.getByRole('option', { name: /author:julius/ }).getAttribute('aria-selected'),
+    ).toBe('true')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(
+      screen.getByRole('option', { name: /author:author0/ }).getAttribute('aria-selected'),
+    ).toBe('true')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input.value).toBe('author:julius ')
+  })
+
+  it('completes known branches with the mouse and resets pagination while preserving filters', async () => {
+    const mock = installMockApi({ ...base, 'GET /api/projects/p1/prs': pageOf([pullRequest()]) })
+    renderAt('/p/p1?page=3&q=is:closed')
+    await screen.findByRole('link', { name: 'Add the thing' })
+    const input = screen.getByRole('combobox', { name: 'Filter pull requests' }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'is:closed base:ma' } })
+    fireEvent.click(screen.getByRole('option', { name: /base:main/ }))
+    expect(input.value).toBe('is:closed base:main ')
+    await waitFor(() =>
+      expect(
+        mock.calls.some(
+          (c) =>
+            c.url.includes('state=closed') &&
+            c.url.includes('base=main') &&
+            !c.url.includes('page='),
+        ),
+      ).toBe(true),
+    )
+  })
+
   it('parses qualifiers and text from one query box into the fetch', async () => {
     const mock = installMockApi({
       ...base,
@@ -221,7 +336,7 @@ describe('filter bar', () => {
     renderAt('/p/p1')
     expect(await screen.findByRole('link', { name: 'Add the thing' })).toBeDefined()
 
-    const input = screen.getByRole('searchbox', { name: 'Filter pull requests' })
+    const input = screen.getByRole('combobox', { name: 'Filter pull requests' })
     fireEvent.change(input, { target: { value: 'author:alice is:draft fix login' } })
     await waitFor(() =>
       expect(
@@ -247,7 +362,7 @@ describe('filter bar', () => {
     expect(screen.getByText('author:alice').className).toContain('text-accent')
     expect(screen.getByText('draft:false').className).toContain('text-accent')
     expect(screen.getByText('draft:maybe').className).not.toContain('text-accent')
-    const input = screen.getByRole('searchbox', { name: 'Filter pull requests' })
+    const input = screen.getByRole('combobox', { name: 'Filter pull requests' })
     fireEvent.change(input, { target: { value: 'author:alice' } })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     await waitFor(() => expect(screen.queryByText('draft:false')).toBeNull())
@@ -257,7 +372,7 @@ describe('filter bar', () => {
     const mock = installMockApi({ ...base, 'GET /api/projects/p1/prs': pageOf([pullRequest()]) })
     renderAt('/p/p1')
     await screen.findByRole('link', { name: 'Add the thing' })
-    const input = screen.getByRole('searchbox', {
+    const input = screen.getByRole('combobox', {
       name: 'Filter pull requests',
     }) as HTMLInputElement
     input.focus()
@@ -279,7 +394,7 @@ describe('filter bar', () => {
     fireEvent.click(screen.getByRole('button', { name: /Clear/ }))
     await waitFor(() =>
       expect(
-        (screen.getByRole('searchbox', { name: 'Filter pull requests' }) as HTMLInputElement).value,
+        (screen.getByRole('combobox', { name: 'Filter pull requests' }) as HTMLInputElement).value,
       ).toBe(''),
     )
     await waitFor(() => expect(mock.calls.some((c) => c.url === '/api/projects/p1/prs')).toBe(true))

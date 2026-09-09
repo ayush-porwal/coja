@@ -85,7 +85,7 @@ export function ReviewDialog({
         }
       }}
       aria-labelledby="review-dialog-title"
-      className="m-auto w-[540px] max-w-[92vw] rounded-lg border border-edge bg-card p-0 text-ink shadow-xl backdrop:bg-black/40"
+      className="m-auto w-[540px] max-w-[92vw] rounded-lg border border-edge bg-card p-0 text-ink shadow-xl backdrop:bg-scrim"
     >
       <form method="dialog" onSubmit={(e) => e.preventDefault()} className="p-5">
         <h2 id="review-dialog-title" className="font-semibold text-base">
@@ -104,13 +104,13 @@ export function ReviewDialog({
             rows={5}
             disabled={busy}
             placeholder="Leave a summary (optional for approvals)"
-            className="w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-sm text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus"
+            className="w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-base text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus"
           />
         </label>
         {error && (
           <p
             role="alert"
-            className="mt-2 rounded border border-danger bg-danger-soft px-2 py-1 text-xs text-danger"
+            className="mt-2 rounded border border-danger bg-danger-soft px-2 py-1 text-xs text-danger-text"
           >
             {error}
           </p>
@@ -155,7 +155,7 @@ export function ReviewDialog({
               type="button"
               onClick={() => setConfirmingDiscard(true)}
               disabled={busy}
-              className="text-danger hover:underline disabled:opacity-50"
+              className="text-danger-text hover:underline disabled:opacity-50"
             >
               Discard pending review
             </button>

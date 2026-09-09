@@ -5,12 +5,11 @@ import {
   type PullRequestPage,
   type PullRequestSummary,
   parsePrQuery,
-  tokenizePrQuery,
 } from '@coja/shared/api'
-import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
-import { isPrFilterEmpty, useProject, usePullRequests } from '../api/hooks'
+import { isPrFilterEmpty, useContributors, useProject, usePullRequests } from '../api/hooks'
 import { formatRelativeTime } from '../lib/time'
+import { preloadPullRequestScreen } from '../pr/loadScreen'
 import {
   AppShell,
   Badge,
@@ -22,6 +21,7 @@ import {
   SkeletonRows,
   Spinner,
 } from '../ui'
+import { FilterBar } from './FilterBar'
 
 const REVIEW_BADGES: Record<MyReviewState, { label: string; tone: BadgeTone } | null> = {
   none: null,
@@ -32,7 +32,7 @@ const REVIEW_BADGES: Record<MyReviewState, { label: string; tone: BadgeTone } | 
 }
 
 /**
- * Open PRs of one project (design §2), paginated like GitHub: numbered pages
+ * PRs of one project (design §2), paginated like GitHub: numbered pages
  * of 100 in the URL (`?page=3`), so reload and back/forward keep the page.
  * Clicking a title opens the review screen.
  */
@@ -49,6 +49,7 @@ export function PullRequestListScreen() {
   const query = param(searchParams, 'q')
   const filter: PrListFilter = query ? parsePrQuery(query) : {}
   const filtered = !isPrFilterEmpty(filter)
+  const contributors = useContributors(projectId)
   const prs = usePullRequests(projectId, requested, filter)
   const data = prs.data as PullRequestPage | undefined
 
@@ -72,7 +73,15 @@ export function PullRequestListScreen() {
   return (
     <AppShell breadcrumb={<span className="truncate font-medium">{crumb}</span>}>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-lg font-semibold tracking-tight">Open pull requests</h1>
+        <h1 className="text-lg font-semibold tracking-tight">
+          {filter.state === 'closed'
+            ? 'Closed pull requests'
+            : filter.state === 'merged'
+              ? 'Merged pull requests'
+              : filter.state === 'all'
+                ? 'All pull requests'
+                : 'Open pull requests'}
+        </h1>
         <div className="flex items-center gap-2">
           {data && data.total > 0 && (
             <span className="text-xs text-muted">
@@ -103,7 +112,14 @@ export function PullRequestListScreen() {
         />
       )}
 
-      <FilterBar query={query ?? ''} onApply={applyQuery} />
+      <FilterBar
+        key={projectId}
+        query={query ?? ''}
+        onApply={applyQuery}
+        items={data?.items}
+        contributors={contributors.data}
+        state={filter.state ?? 'open'}
+      />
 
       <div className="mt-4">
         {prs.isPending ? (
@@ -273,14 +289,22 @@ function PullRequestRow({ pr, projectId }: { pr: PullRequestSummary; projectId: 
         <div className="flex flex-wrap items-center gap-2">
           <Link
             to={`/p/${projectId}/pr/${pr.number}`}
+            onMouseEnter={preloadPullRequestScreen}
+            onFocus={preloadPullRequestScreen}
             className={cn(
-              'truncate rounded-sm text-sm font-medium text-ink group-hover:underline',
+              'truncate rounded-sm text-base font-medium text-ink group-hover:underline',
               focusRing,
             )}
           >
             {pr.title}
           </Link>
-          {pr.isDraft && <Badge>Draft</Badge>}
+          {pr.state === 'MERGED' ? (
+            <Badge tone="neutral">Merged</Badge>
+          ) : pr.state === 'CLOSED' ? (
+            <Badge tone="red">Closed</Badge>
+          ) : pr.isDraft ? (
+            <Badge>Draft</Badge>
+          ) : null}
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
@@ -309,8 +333,8 @@ function PullRequestRow({ pr, projectId }: { pr: PullRequestSummary; projectId: 
             className="font-mono"
             title={`${pr.changedFiles} changed ${pr.changedFiles === 1 ? 'file' : 'files'}`}
           >
-            <span className="text-ok">+{shortCount(pr.additions)}</span>{' '}
-            <span className="text-danger">−{shortCount(pr.deletions)}</span>
+            <span className="text-ok-text">+{shortCount(pr.additions)}</span>{' '}
+            <span className="text-danger-text">−{shortCount(pr.deletions)}</span>
           </span>
         </div>
       </div>
@@ -374,7 +398,7 @@ function Avatar({ actor }: { actor: Actor }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-6 items-center justify-center rounded-full bg-active text-[10px] font-semibold uppercase text-muted"
+      className="inline-flex size-6 items-center justify-center rounded-full bg-active text-xs font-semibold uppercase text-muted"
     >
       {actor.login.slice(0, 1)}
     </span>
@@ -395,150 +419,6 @@ function RefreshIcon() {
     >
       <path d="M13.25 8a5.25 5.25 0 1 1-1.54-3.71" />
       <path d="M13.5 1.75v2.8h-2.8" />
-    </svg>
-  )
-}
-
-/** One editable query with syntax highlighting driven by the shared parser. */
-function FilterBar({ query, onApply }: { query: string; onApply(raw: string): void }) {
-  const [draft, setDraft] = useState(query)
-  const [previousQuery, setPreviousQuery] = useState(query)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const overlay = useRef<HTMLDivElement>(null)
-  const input = useRef<HTMLInputElement>(null)
-  const composing = useRef(false)
-  const cancel = () => {
-    if (timer.current) clearTimeout(timer.current)
-  }
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current)
-    },
-    [],
-  )
-  const edit = (value: string) => {
-    cancel()
-    setDraft(value)
-    if (!composing.current)
-      timer.current = setTimeout(() => {
-        if (value.trim() !== query) onApply(value)
-      }, 300)
-  }
-  if (previousQuery !== query) {
-    cancel()
-    setPreviousQuery(query)
-    // Keep whitespace and the caret when acknowledging our own edit.
-    if (draft.trim() !== query) setDraft(query)
-  }
-  const tokens = tokenizePrQuery(draft)
-  const highlights = []
-  let offset = 0
-  for (const token of tokens) {
-    highlights.push(<span key={`space-${token.start}`}>{draft.slice(offset, token.start)}</span>)
-    highlights.push(
-      <span
-        key={token.start}
-        className={token.field ? 'rounded-sm bg-accent-soft text-accent' : undefined}
-      >
-        {token.raw}
-      </span>,
-    )
-    offset = token.end
-  }
-  highlights.push(<span key="end">{draft.slice(offset)}</span>)
-
-  return (
-    <form
-      className="mt-4"
-      onSubmit={(event) => {
-        event.preventDefault()
-        cancel()
-        if (draft.trim() !== query) onApply(draft)
-      }}
-    >
-      <div className="flex min-w-0 items-center gap-2 rounded-lg border border-edge bg-card px-3 py-2 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
-        <SearchIcon />
-        <div className="relative min-w-0 flex-1">
-          <div
-            ref={overlay}
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre font-mono text-sm leading-6 text-ink"
-          >
-            {highlights}
-          </div>
-          <input
-            ref={input}
-            type="search"
-            value={draft}
-            onChange={(event) => edit(event.target.value)}
-            onScroll={(event) => {
-              if (overlay.current) overlay.current.scrollLeft = event.currentTarget.scrollLeft
-            }}
-            onCompositionStart={() => {
-              composing.current = true
-              cancel()
-            }}
-            onCompositionEnd={(event) => {
-              composing.current = false
-              edit(event.currentTarget.value)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                cancel()
-                setDraft(query)
-              }
-            }}
-            aria-label="Filter pull requests"
-            aria-describedby="pr-filter-help"
-            placeholder="Filter pull requests…"
-            spellCheck={false}
-            autoComplete="off"
-            className="relative block h-6 w-full min-w-0 appearance-none border-0 bg-transparent p-0 font-mono text-sm leading-6 text-transparent caret-ink outline-none placeholder:text-faint [&::-webkit-search-cancel-button]:appearance-none"
-          />
-        </div>
-        {draft && (
-          <button
-            type="button"
-            aria-label="Clear query"
-            onClick={() => {
-              cancel()
-              setDraft('')
-              onApply('')
-              input.current?.focus()
-            }}
-            className={cn(
-              'shrink-0 cursor-pointer rounded px-1 text-muted hover:text-ink',
-              focusRing,
-            )}
-          >
-            ×
-          </button>
-        )}
-        <button
-          type="submit"
-          className={cn(
-            'shrink-0 cursor-pointer rounded border border-edge px-2 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink',
-            focusRing,
-          )}
-        >
-          Search
-        </button>
-      </div>
-      <p id="pr-filter-help" className="mt-2 text-xs leading-5 text-muted">
-        Search titles or a commit SHA. Filters: <code>author:login</code>, <code>head:branch</code>,{' '}
-        <code>base:branch</code>, <code>is:draft</code>, <code>is:ready</code>,{' '}
-        <code>draft:true/false</code>.
-      </p>
-    </form>
-  )
-}
-
-function SearchIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-4 shrink-0 text-muted">
-      <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )
 }

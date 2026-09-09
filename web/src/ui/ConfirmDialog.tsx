@@ -105,7 +105,7 @@ export function ConfirmDialog({
   }
 
   return createPortal(
-    <div className="coja-modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="coja-modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
       <div
         ref={cardRef}
         role="alertdialog"
@@ -122,7 +122,7 @@ export function ConfirmDialog({
             aria-hidden="true"
             className={cn(
               'flex size-9 shrink-0 items-center justify-center rounded-full',
-              tone === 'danger' ? 'bg-danger-soft text-danger' : 'bg-active text-accent-text',
+              tone === 'danger' ? 'bg-danger-soft text-danger-text' : 'bg-active text-accent-text',
             )}
           >
             {icon === 'trash' ? <TrashIcon /> : <WarningIcon />}

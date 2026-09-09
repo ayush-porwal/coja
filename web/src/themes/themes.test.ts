@@ -114,20 +114,35 @@ describe('applyTheme', () => {
     expect(root.style.getPropertyValue('--coja-canvas')).toBe(palette.dark.canvas)
     expect(root.style.getPropertyValue('--coja-accent')).toBe(palette.dark.accent)
     // Diff wiring rides the same application:
-    expect(root.style.getPropertyValue('--diffs-background')).toBe(palette.dark.code)
+    expect(root.style.getPropertyValue('--diffs-background')).toBe(palette.dark.canvas)
     expect(root.style.getPropertyValue('--diffs-token-keyword')).toBe(palette.syntax.dark.keyword)
     expect(root.style.getPropertyValue('--diffs-light-bg')).toBeTruthy()
     expect(root.style.getPropertyValue('--diffs-dark-bg')).toBeTruthy()
     // t3code's verbatim formula: sRGB mix toward the full-strength ok colour.
     expect(root.style.getPropertyValue('--diffs-bg-addition-override')).toBe(
-      `color-mix(in srgb, ${palette.dark.code} 70%, ${palette.dark.ok})`,
+      `color-mix(in srgb, ${palette.dark.canvas} 70%, ${palette.dark.ok})`,
     )
+  })
+
+  it('uses one neutral surface across pages, loading containers, trees and diffs in every theme', () => {
+    for (const palette of PALETTES) {
+      for (const appearance of ['light', 'dark'] as const) {
+        const css = themeToCssProperties(palette, appearance) as Record<string, string>
+        for (const role of ['canvas', 'chrome', 'card', 'overlay', 'panel', 'code']) {
+          expect(css[`--coja-${role}`]).toBe(palette[appearance].canvas)
+        }
+        for (const role of ['context', 'separator', 'buffer']) {
+          expect(css[`--diffs-bg-${role}-override`]).toBe(palette[appearance].canvas)
+        }
+        expect(treeStylesFor(palette, appearance).backgroundColor).toBe(css['--coja-canvas'])
+      }
+    }
   })
 
   it('themeToCssProperties covers all chrome roles', () => {
     const styles = themeToCssProperties(resolvePalette('grove'), 'light') as Record<string, string>
-    expect(styles['--coja-panel']).toBe(resolvePalette('grove').light.panel)
-    expect(styles['--coja-code']).toBe(resolvePalette('grove').light.code)
+    expect(styles['--coja-panel']).toBe(resolvePalette('grove').light.canvas)
+    expect(styles['--coja-code']).toBe(resolvePalette('grove').light.canvas)
   })
 })
 
@@ -140,7 +155,7 @@ describe('pierre mapping', () => {
     for (const palette of PALETTES) {
       for (const appearance of ['light', 'dark'] as const) {
         const styles = treeStylesFor(palette, appearance)
-        expect(styles.backgroundColor).toBe(palette[appearance].panel)
+        expect(styles.backgroundColor).toBe(palette[appearance].canvas)
         expect(styles.colorScheme ?? styles.colorScheme).toBeTruthy()
       }
     }

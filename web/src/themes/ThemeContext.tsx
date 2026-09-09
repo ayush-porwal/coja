@@ -37,7 +37,7 @@ interface ThemeContextValue {
   appearance: 'light' | 'dark'
   /** `--trees-theme-*` styles for the FileTree host, from the active palette. */
   treeStyles: TreeThemeStyles
-  /** User typography preferences (families, sizes, ligatures). */
+  /** Code font size and line-height preferences. */
   typography: TypographyPrefs
   setTypography(next: TypographyPrefs): void
   resetTypography(): void

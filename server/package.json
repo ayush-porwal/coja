@@ -48,6 +48,7 @@
     "@napi-rs/keyring": "2.0.0",
     "ai": "7.0.92",
     "hono": "4.13.7",
-    "zod": "4.5.4"
+    "zod": "4.5.4",
+    "@coja/agent": "workspace:^"
   }
 }

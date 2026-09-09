@@ -1,0 +1,48 @@
+{
+  "name": "@coja/agent",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "default": "./dist/contracts.js"
+    },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "default": "./dist/tools.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    },
+    "./prompt": {
+      "types": "./dist/prompt.d.ts",
+      "default": "./dist/prompt.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "ai": "7.0.92",
+    "zod": "4.5.4",
+    "@ai-sdk/provider": "4.0.10",
+    "@ai-sdk/provider-utils": "5.0.36"
+  },
+  "description": "Read-only code review agent runtime and browser-safe chat contracts"
+}

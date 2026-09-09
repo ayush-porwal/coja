@@ -10,7 +10,9 @@ import type { ChatMessage } from './types.js'
  * ends, so what the UI renders after a reload is exactly what it streamed.
  */
 
-export const TITLE_MAX_CHARS = 80
+import { TITLE_MAX_CHARS } from '@coja/agent'
+
+export { TITLE_MAX_CHARS } from '@coja/agent'
 
 interface Row {
   id: string

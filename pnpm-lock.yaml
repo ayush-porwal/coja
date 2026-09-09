@@ -38,6 +38,21 @@ importers:
         specifier: 5.0.0
         version: 5.0.0(@types/node@22.20.1)(jsdom@30.0.1)(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13))
 
+  packages/agent:
+    dependencies:
+      '@ai-sdk/provider':
+        specifier: 4.0.10
+        version: 4.0.10
+      '@ai-sdk/provider-utils':
+        specifier: 5.0.36
+        version: 5.0.36(zod@4.5.4)
+      ai:
+        specifier: 7.0.92
+        version: 7.0.92(zod@4.5.4)
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
   server:
     dependencies:
       '@ai-sdk/anthropic':
@@ -46,6 +61,9 @@ importers:
       '@ai-sdk/openai':
         specifier: 4.0.58
         version: 4.0.58(zod@4.5.4)
+      '@coja/agent':
+        specifier: workspace:^
+        version: link:../packages/agent
       '@hono/node-server':
         specifier: 2.1.1
         version: 2.1.1(hono@4.13.7)
@@ -67,6 +85,9 @@ importers:
       '@ai-sdk/react':
         specifier: 4.0.95
         version: 4.0.95(react@19.2.8)(zod@4.5.4)
+      '@coja/agent':
+        specifier: workspace:^
+        version: link:../packages/agent
       '@pierre/diffs':
         specifier: 1.4.0
         version: 1.4.0(patch_hash=5a2d88454ca2959049d183fa360733c3ed33807976017982e73720d0578fa6a6)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

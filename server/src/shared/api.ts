@@ -1,3 +1,5 @@
+import type { DiffSide, PrRef } from '@coja/agent/contracts'
+
 /**
  * Wire types shared between the server and the web UI.
  *
@@ -61,6 +63,8 @@ export const API_ROUTES = {
    * GET ?page=1&text=&author=&head=&base=&draft=true|false → PullRequestPage
    * (open PRs, newest update first, 100 per page; filters are server-side).
    */
+  contributors: (projectId: string) =>
+    `/api/projects/${encodeURIComponent(projectId)}/contributors`,
   prs: (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/prs`,
   /** GET → PullRequestDetail */
   pr,
@@ -126,7 +130,7 @@ export interface Actor {
   avatarUrl?: string
 }
 
-export type DiffSide = 'LEFT' | 'RIGHT'
+export type { DiffSide } from '@coja/agent/contracts'
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -469,7 +473,7 @@ export interface PrListFilter {
   draft?: boolean
 }
 
-/** True when no field is set — the filter that means "everything". */
+/** True for the default open list, including an explicit is:open qualifier. */
 export function isEmptyFilter(filter: PrListFilter): boolean {
   return (
     (filter.text ?? '') === '' &&
@@ -477,7 +481,7 @@ export function isEmptyFilter(filter: PrListFilter): boolean {
     (filter.head ?? '') === '' &&
     (filter.base ?? '') === '' &&
     filter.draft === undefined &&
-    filter.state === undefined
+    (filter.state === undefined || filter.state === 'open')
   )
 }
 
@@ -595,13 +599,7 @@ export interface FetchStatus {
 }
 
 /** Status letters from `git diff --name-status -M`. */
-export type GitChangeStatus = 'A' | 'D' | 'M' | 'R' | 'C' | 'T'
-
-export interface GitChangedFile {
-  path: string
-  previousPath?: string
-  status: GitChangeStatus
-}
+export type { GitChangedFile, GitChangeStatus } from '@coja/agent/contracts'
 
 export interface FileDiffResponse {
   path: string
@@ -613,7 +611,7 @@ export interface FileDiffResponse {
   tooLarge: boolean
 }
 
-export type PrRef = 'base' | 'head'
+export type { PrRef } from '@coja/agent/contracts'
 
 export interface BlobResponse {
   ref: PrRef
@@ -745,29 +743,9 @@ export interface NewChatRequest {
  * each one to a text part for the model (`convertDataPart`); the stored UI
  * message keeps the chip as-is so the UI can render and expand it.
  */
-export interface ContextChip {
-  id: string
-  kind: 'selection'
-  path: string
-  ref: PrRef
-  side: DiffSide
-  startLine: number
-  endLine: number
-  text: string
-}
-
 /** Data part types on chat UIMessages (`UIMessage<ChatMessageMetadata, ChatDataParts, …>`). */
-export interface ChatDataParts {
-  chip: ContextChip
-  [key: string]: unknown
-}
-
 /** `UIMessage.metadata` shape for both user and assistant messages. */
-export interface ChatMessageMetadata {
-  /** `<provider>:<model id>` used for the assistant turn. */
-  model?: string
-  createdAt?: string
-}
+export type { ChatDataParts, ChatMessageMetadata, ContextChip } from '@coja/agent/contracts'
 
 /**
  * Body of POST prChatMessages. `messages` is the Vercel AI SDK UIMessage[]
@@ -790,4 +768,9 @@ export interface AiContextResponse {
   system: string
   /** Tool names and one-line descriptions, for the "what does the AI see?" affordance. */
   tools: { name: string; description: string }[]
+}
+
+export interface RepositoryContributor {
+  login: string
+  contributions: number
 }

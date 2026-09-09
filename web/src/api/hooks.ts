@@ -7,10 +7,11 @@ import {
   type DirListing,
   type FetchCustomModelsRequest,
   type FetchCustomModelsResponse,
-  type PrListFilter,
   isEmptyFilter,
+  type PrListFilter,
   type Project,
   type PullRequestPage,
+  type RepositoryContributor,
   type SetupStatus,
 } from '@coja/shared/api'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -245,4 +246,13 @@ export function prFilterKey(filter: PrListFilter): string {
 /** True when no filter field is set. */
 export function isPrFilterEmpty(filter: PrListFilter): boolean {
   return isEmptyFilter(filter)
+}
+
+export function useContributors(projectId: string) {
+  return useQuery({
+    queryKey: ['contributors', projectId],
+    queryFn: () => api.get<RepositoryContributor[]>(API_ROUTES.contributors(projectId)),
+    staleTime: 30 * 60_000,
+    retry: false,
+  })
 }

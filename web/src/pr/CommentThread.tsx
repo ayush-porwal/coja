@@ -13,10 +13,10 @@ interface CommentThreadProps {
 }
 
 const badgeClass =
-  'rounded-full border px-1.5 py-px text-[11px] font-medium leading-4 border-edge-strong text-muted'
+  'rounded-full border px-1.5 py-px text-xs font-medium leading-4 border-edge-strong text-muted'
 
 const textareaClass =
-  'w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-sm text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus'
+  'w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-base text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus'
 
 /**
  * A GitHub review thread rendered inline under its diff line (light DOM, so
@@ -51,7 +51,9 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
     >
       {showHeader && (
         <header className="flex flex-wrap items-center gap-2 border-edge border-b px-3 py-1.5 text-xs text-muted">
-          {thread.isResolved && <span className={`${badgeClass} border-ok text-ok`}>Resolved</span>}
+          {thread.isResolved && (
+            <span className={`${badgeClass} border-ok text-ok-text`}>Resolved</span>
+          )}
           {thread.isOutdated && <span className={badgeClass}>Outdated</span>}
           {fileLevel && thread.originalLine !== null && (
             <span>
@@ -90,7 +92,7 @@ export function CommentThread({ projectId, number, thread }: CommentThreadProps)
           className={textareaClass}
         />
         {replyError && (
-          <p role="alert" className="mt-1 text-xs text-danger">
+          <p role="alert" className="mt-1 text-xs text-danger-text">
             {replyError}
           </p>
         )}
@@ -165,7 +167,7 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
           {formatRelative(comment.createdAt)}
         </time>
         {comment.isPending && (
-          <span className={`${badgeClass} border-caution bg-caution-soft text-caution`}>
+          <span className={`${badgeClass} border-caution bg-caution-soft text-caution-text`}>
             Pending
           </span>
         )}
@@ -228,7 +230,7 @@ function CommentItem({ comment, projectId, number }: CommentItemProps) {
         />
       )}
       {error && (
-        <p role="alert" className="mt-1 text-xs text-danger">
+        <p role="alert" className="mt-1 text-xs text-danger-text">
           {error}
         </p>
       )}

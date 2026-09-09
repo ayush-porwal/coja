@@ -263,7 +263,7 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
       {noProvider && (
         <div
           role="status"
-          className="border-caution border-b bg-caution-soft px-3 py-2 text-xs text-caution"
+          className="border-caution border-b bg-canvas px-3 py-2 text-xs text-caution-text"
         >
           No model provider configured — add one in{' '}
           <Link to="/setup" className="font-medium underline">
@@ -366,7 +366,13 @@ export function AiPanel({ projectId, number, detail, onChipsChange }: AiPanelPro
         onStop={() => liveControls?.stop()}
         streaming={streaming}
         disabled={noProvider || models.isError || model === ''}
-        disabledReason={noProvider ? NO_PROVIDER_MESSAGE : 'Loading models…'}
+        disabledReason={
+          noProvider
+            ? NO_PROVIDER_MESSAGE
+            : models.isError
+              ? 'Models unavailable — retry above'
+              : 'Loading models…'
+        }
         busy={createChat.isPending || pending !== null}
         onChipsChange={onChipsChange}
       />

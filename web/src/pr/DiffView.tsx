@@ -180,10 +180,9 @@ export function DiffView({
   )
   const codeStyleVars = useMemo(
     () => ({
-      '--coja-code-ligatures': typography.codeLigatures ? 'normal' : 'none',
       '--coja-code-size': `${typography.codeSize}px`,
     }),
-    [typography.codeLigatures, typography.codeSize],
+    [typography.codeSize],
   )
   // Split-diff column boundary, persisted; read live during drags through the
   // `--coja-split-left` variable (SplitDivider + SPLIT_GRID_CSS in options).
@@ -707,7 +706,7 @@ export function DiffView({
             className="flex h-full items-center justify-center p-6 text-center text-sm"
             role="alert"
           >
-            <div className="max-w-md rounded-md border border-danger bg-danger-soft p-4 text-danger">
+            <div className="max-w-md rounded-md border border-danger bg-canvas p-4 text-danger-text">
               <p className="font-medium">The diff view hit a rendering error</p>
               <p className="mt-1 text-xs">
                 It did not recover on its own. Reload the page — your review state is safe on
@@ -821,7 +820,7 @@ function FileHeaderMeta({
           className="accent-accent"
         />
         Viewed
-        {dismissed && <span className="text-caution"> · changed since viewed</span>}
+        {dismissed && <span className="text-caution-text"> · changed since viewed</span>}
       </label>
     </span>
   )
@@ -879,13 +878,13 @@ function CenterMessage({
   let content: React.ReactNode
   if (fetchFailed) {
     content = (
-      <div className="max-w-md rounded-md border border-danger bg-danger-soft p-4 text-danger">
+      <div className="max-w-md rounded-md border border-danger bg-canvas p-4 text-danger-text">
         <p className="font-medium">Could not fetch the PR objects</p>
         <p className="mt-1 break-words text-xs">{fetchMessage ?? 'Unknown error'}</p>
         <button
           type="button"
           onClick={onRetryFetch}
-          className="mt-3 rounded bg-danger px-3 py-1 font-medium text-xs text-white hover:opacity-90"
+          className="mt-3 rounded bg-danger-button px-3 py-1 font-medium text-xs text-status-button-ink hover:opacity-90"
         >
           Retry fetch
         </button>
@@ -904,7 +903,7 @@ function CenterMessage({
     content = (
       <p className="flex items-center gap-2">
         <span
-          className="inline-block h-2 w-2 animate-pulse rounded-full bg-caution"
+          className="inline-block h-2 w-2 motion-safe:animate-pulse rounded-full bg-caution"
           aria-hidden="true"
         />
         Fetching PR objects… the diff renders as they arrive.

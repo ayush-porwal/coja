@@ -181,12 +181,12 @@ export function Composer({
                 ? 'Working — draft your next question while this one finishes'
                 : 'Ask about this pull request…'
           }
-          className="max-h-[240px] min-h-[3.25rem] w-full resize-none bg-transparent px-3 py-2 text-sm text-ink outline-none placeholder:text-faint disabled:opacity-60"
+          className="max-h-[240px] min-h-[3.25rem] w-full resize-none bg-transparent px-3 py-2 text-base text-ink outline-none placeholder:text-faint disabled:opacity-60"
         />
         <div className="flex items-center gap-2 px-2 pb-2">
           <span className="max-w-[45%] min-w-0 shrink truncate text-xs">
             {error ? (
-              <span role="alert" className="text-danger">
+              <span role="alert" className="text-danger-text">
                 {error}
               </span>
             ) : streaming ? (
@@ -205,7 +205,7 @@ export function Composer({
             <button
               type="button"
               onClick={onStop}
-              className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-edge-strong px-2.5 py-1.5 text-xs font-medium text-ink hover:border-danger hover:text-danger"
+              className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-edge-strong px-2.5 py-1.5 text-xs font-medium text-ink hover:border-danger hover:text-danger-text"
               title="Stop generating — cancels the request and the provider call"
             >
               <StopIcon />
@@ -248,7 +248,7 @@ function Dot({ delay }: { delay: string }) {
   return (
     <span
       aria-hidden="true"
-      className="size-1 animate-bounce rounded-full bg-muted"
+      className="size-1 motion-safe:animate-bounce rounded-full bg-muted"
       style={{ animationDelay: delay }}
     />
   )

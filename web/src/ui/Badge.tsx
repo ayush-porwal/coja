@@ -5,9 +5,9 @@ export type BadgeTone = 'neutral' | 'green' | 'red' | 'amber' | 'indigo'
 
 const tones: Record<BadgeTone, string> = {
   neutral: 'bg-active text-muted ring-edge',
-  green: 'bg-ok-soft text-ok ring-ok',
-  red: 'bg-danger-soft text-danger ring-danger',
-  amber: 'bg-caution-soft text-caution ring-caution',
+  green: 'bg-ok-soft text-ok-text ring-ok',
+  red: 'bg-danger-soft text-danger-text ring-danger',
+  amber: 'bg-caution-soft text-caution-text ring-caution',
   indigo: 'bg-accent-soft text-accent-text ring-accent',
 }
 

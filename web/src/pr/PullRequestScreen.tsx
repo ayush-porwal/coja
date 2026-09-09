@@ -333,7 +333,7 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
           role="status"
         >
           {pr.isError ? (
-            <div className="max-w-md rounded-md border border-danger bg-danger-soft p-4 text-danger">
+            <div className="max-w-md rounded-md border border-danger bg-canvas p-4 text-danger-text">
               <p className="font-medium">Could not load pull request #{number}</p>
               <p className="mt-1 break-words text-xs">{pr.error.message}</p>
               <button

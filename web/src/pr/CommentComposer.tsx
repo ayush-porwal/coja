@@ -55,10 +55,10 @@ export function CommentComposer({
         rows={3}
         disabled={pending}
         placeholder="Leave a comment — it joins your pending review, invisible to others until you submit"
-        className="w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-sm text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus"
+        className="w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-base text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus"
       />
       {error && (
-        <p role="alert" className="mt-1 break-words text-xs text-danger">
+        <p role="alert" className="mt-1 break-words text-xs text-danger-text">
           {error}
         </p>
       )}

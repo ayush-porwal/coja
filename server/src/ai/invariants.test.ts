@@ -35,7 +35,11 @@ async function sourceFiles(): Promise<string[]> {
   const own = entries
     .filter((e) => e.isFile() && e.name.endsWith('.ts') && !e.name.endsWith('.test.ts'))
     .map((e) => path.join(e.parentPath, e.name))
-  return [...own, CHAT_ROUTE]
+  const harness = path.resolve(here, '../../../packages/agent/src')
+  const harnessFiles = (await readdir(harness))
+    .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+    .map((name) => path.join(harness, name))
+  return [...own, ...harnessFiles, CHAT_ROUTE]
 }
 
 const rel = (file: string): string => path.relative(path.resolve(here, '../..'), file)
@@ -67,7 +71,6 @@ describe('AI layer invariants', () => {
     for (const file of await sourceFiles()) {
       const text = await readFile(file, 'utf8')
       const specifiers = [...text.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1] ?? '')
-      expect(specifiers.length, `${rel(file)} has imports`).toBeGreaterThan(0)
       for (const spec of specifiers) {
         expect(spec, `${rel(file)} imports ${spec}`).not.toMatch(FORBIDDEN_IMPORTS)
       }

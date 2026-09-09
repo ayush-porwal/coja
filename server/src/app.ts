@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { Hono } from 'hono'
 import { getCustomProvider } from './custom-providers.js'
@@ -117,12 +117,20 @@ export function createApp(opts: AppOptions) {
   app.get('*', async (c) => {
     const file = resolveUnder(publicDir, c.req.path)
     if (file) {
-      const res = await serveFile(file, file.startsWith(assetsDir) ? IMMUTABLE : NO_CACHE)
+      const res = await serveFile(
+        file,
+        file.startsWith(assetsDir) ? IMMUTABLE : NO_CACHE,
+        c.req.header('if-none-match'),
+      )
       if (res) return res
     }
     if (c.req.path.startsWith('/assets/')) return c.text('not found', 404)
 
-    const index = await serveFile(path.join(publicDir, 'index.html'), NO_CACHE)
+    const index = await serveFile(
+      path.join(publicDir, 'index.html'),
+      NO_CACHE,
+      c.req.header('if-none-match'),
+    )
     return (
       index ?? c.text('coja UI is not built. Run `pnpm build` (or use the Vite dev server).', 503)
     )
@@ -143,20 +151,43 @@ function resolveUnder(root: string, pathname: string): string | null {
 }
 
 /** Read `file` into a Response; null when it does not exist or is not a regular file. */
-async function serveFile(file: string, cacheControl: string): Promise<Response | null> {
-  let body: Buffer
+async function serveFile(
+  file: string,
+  cacheControl: string,
+  ifNoneMatch?: string,
+): Promise<Response | null> {
+  let info: Awaited<ReturnType<typeof stat>>
   try {
-    body = await readFile(file)
+    info = await stat(file)
+    if (!info.isFile()) return null
   } catch {
     return null
   }
   const type = MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
   const headers: Record<string, string> = {
     'content-type': type,
-    'content-length': String(body.byteLength),
     'cache-control': cacheControl,
+    // Metadata validator avoids reading and transferring unchanged multi-MB
+    // fonts. Weak because the validator describes file metadata, not a hash.
+    etag: `W/"${info.size}-${info.mtimeMs}-${info.ctimeMs}"`,
   }
   // The document (served directly or as the SPA fallback) carries the policy; assets need none.
   if (type.startsWith('text/html')) headers['content-security-policy'] = CONTENT_SECURITY_POLICY
+  const tag = headers.etag?.replace(/^W\//, '')
+  if (
+    ifNoneMatch?.split(',').some((value) => {
+      const candidate = value.trim()
+      return candidate === '*' || candidate.replace(/^W\//, '') === tag
+    })
+  ) {
+    return new Response(null, { status: 304, headers })
+  }
+  let body: Buffer
+  try {
+    body = await readFile(file)
+  } catch {
+    return null
+  }
+  headers['content-length'] = String(body.byteLength)
   return new Response(body, { headers })
 }

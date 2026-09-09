@@ -18,7 +18,6 @@ import {
   useFetchCustomModels,
   useSetupStatus,
 } from '../api/hooks'
-import { useTheme } from '../themes/ThemeContext'
 import { ThemePicker } from '../themes/ThemePicker'
 import { AppShell, Badge, Button, cn, Field, Input, linkClass, Select, Spinner } from '../ui'
 import { TypographySection } from './TypographySection'
@@ -28,7 +27,6 @@ import { TypographySection } from './TypographySection'
  * optional. Continue marks setup complete and lands on Projects either way.
  */
 export function SetupScreen() {
-  const { resetTypography } = useTheme()
   const status = useSetupStatus()
   const complete = useCompleteSetup()
   const navigate = useNavigate()
@@ -60,39 +58,45 @@ export function SetupScreen() {
           )}
         </p>
 
-        <ol className="mt-6 rounded-lg border border-edge bg-card px-2 py-2">
-          <GitHubRow status={status} />
-          <RowConnector label="and" />
-          <ChatGptRow status={data} />
-          <RowConnector label="or" />
-          <CustomProvidersRow status={data} />
-        </ol>
+        <section aria-labelledby="connections-heading" className="mt-8">
+          <h2 id="connections-heading" className="text-base font-semibold">
+            Connections
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            GitHub powers reviews. Connect an AI provider to use chat.
+          </p>
+          <ol className="mt-4 rounded-lg border border-edge bg-card p-3">
+            <GitHubRow status={status} />
+            <RowConnector label="and" />
+            <ChatGptRow status={data} />
+            <RowConnector label="or" />
+            <CustomProvidersRow status={data} />
+          </ol>
+        </section>
 
-        <section className="mt-6">
-          <h2 className="text-sm font-semibold">Theme</h2>
-          <p className="mt-1 mb-3 text-sm text-muted">
-            Choose a palette and appearance for your workspace, diffs, and chat.
+        <section aria-labelledby="appearance-heading" className="mt-8 border-t border-edge pt-6">
+          <h2 id="appearance-heading" className="text-base font-semibold">
+            Appearance
+          </h2>
+          <p className="mt-1 mb-4 text-sm text-muted">
+            Choose a color palette and a light or dark appearance.
           </p>
           <ThemePicker />
         </section>
 
-        <section className="mt-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Typography</h2>
-            <Button size="sm" variant="ghost" onClick={resetTypography}>
-              Reset typography defaults
-            </Button>
-          </div>
-          <p className="mt-1 mb-3 text-sm text-muted">
-            Applies immediately across the app — diffs and code included. Independent of the color
-            theme.
+        <section aria-labelledby="code-heading" className="mt-8 border-t border-edge pt-6">
+          <h2 id="code-heading" className="text-base font-semibold">
+            Code
+          </h2>
+          <p className="mt-1 mb-4 text-sm text-muted">
+            Adjust text size and spacing in diffs and code blocks.
           </p>
           <TypographySection />
         </section>
 
         <footer className="mt-6 flex flex-wrap items-center justify-end gap-2">
           {complete.isError && (
-            <p role="alert" className="mr-auto text-sm text-danger">
+            <p role="alert" className="mr-auto text-sm text-danger-text">
               {complete.error.message}
             </p>
           )}
@@ -137,7 +141,7 @@ function RowConnector({ label }: { label: 'and' | 'or' }) {
       <span
         className={cn(
           'relative rounded-full border border-edge bg-card px-2.5 py-0.5',
-          'text-[10px] font-semibold tracking-widest text-muted uppercase',
+          'text-xs font-semibold tracking-widest text-muted uppercase',
         )}
       >
         {label}
@@ -193,7 +197,7 @@ function GitHubRow({ status }: { status: UseQueryResult<SetupStatus> }) {
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          <p className="text-danger">{gh.error ?? 'Not signed in to GitHub.'}</p>
+          <p className="text-danger-text">{gh.error ?? 'Not signed in to GitHub.'}</p>
           <p className="text-muted">
             coja authenticates only through the GitHub CLI — nothing to paste here.
           </p>
@@ -298,14 +302,14 @@ function ChatGptRow({ status }: { status: SetupStatus | undefined }) {
             </span>
           </div>
           {(chatgpt?.connectError || connect.error) && (
-            <p role="alert" className="text-xs font-medium text-danger">
+            <p role="alert" className="text-xs font-medium text-danger-text">
               {chatgpt?.connectError ?? connect.error?.message}
             </p>
           )}
         </div>
       )}
       {disconnect.isError && (
-        <p role="alert" className="mt-2 text-xs font-medium text-danger">
+        <p role="alert" className="mt-2 text-xs font-medium text-danger-text">
           {disconnect.error.message}
         </p>
       )}
@@ -372,7 +376,7 @@ function CustomProvidersRow({ status }: { status: SetupStatus | undefined }) {
         </ul>
       )}
       {remove.isError && (
-        <p role="alert" className="mt-2 text-xs font-medium text-danger">
+        <p role="alert" className="mt-2 text-xs font-medium text-danger-text">
           {remove.error.message}
         </p>
       )}
@@ -688,7 +692,7 @@ function AddProviderForm({
       </Field>
 
       {error ? (
-        <p role="alert" className="text-xs font-medium text-danger">
+        <p role="alert" className="text-xs font-medium text-danger-text">
           {error}
         </p>
       ) : (

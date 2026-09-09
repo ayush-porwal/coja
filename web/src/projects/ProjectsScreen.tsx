@@ -76,7 +76,7 @@ function ProjectList({ projects }: { projects: Project[] }) {
         ))}
       </ul>
       {remove.isError && (
-        <p role="alert" className="mt-2 text-xs font-medium text-danger">
+        <p role="alert" className="mt-2 text-xs font-medium text-danger-text">
           {remove.error.message}
         </p>
       )}
