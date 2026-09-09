@@ -61,9 +61,6 @@ importers:
       '@ai-sdk/openai':
         specifier: 4.0.58
         version: 4.0.58(zod@4.5.4)
-      '@coja/agent':
-        specifier: workspace:^
-        version: link:../packages/agent
       '@hono/node-server':
         specifier: 2.1.1
         version: 2.1.1(hono@4.13.7)
@@ -79,6 +76,10 @@ importers:
       zod:
         specifier: 4.5.4
         version: 4.5.4
+    devDependencies:
+      '@coja/agent':
+        specifier: workspace:^
+        version: link:../packages/agent
 
   web:
     dependencies:

@@ -59,4 +59,6 @@ These commands build the harness before its consumers. `pnpm dev` watches all
 three packages, including regenerated harness declarations and JavaScript.
 To create a distributable tarball, run `pnpm --filter @coja/agent pack`.
 Only compiled JavaScript, declarations, and this README are shipped. Publishing
-this package is a separate step; it has not been published by this extraction.
+this package is optional: the server build includes the compiled agent in
+`server/dist/agent` and rewrites its imports to that shared local module graph.
+The published CLI has no runtime dependency on an unpublished workspace package.

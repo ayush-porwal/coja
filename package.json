@@ -13,7 +13,8 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "pnpm --filter @coja/agent build && vitest run",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "test:package": "node server/scripts/check-package.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
