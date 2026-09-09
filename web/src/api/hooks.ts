@@ -219,7 +219,7 @@ export function usePullRequests(projectId: string, page: number, filter: PrListF
     queryFn: () => {
       const params = new URLSearchParams()
       if (page > 1) params.set('page', String(page))
-      if (filter.state) params.set('state', filter.state)
+      if (filter.state && filter.state !== 'open') params.set('state', filter.state)
       if (filter.text) params.set('text', filter.text)
       if (filter.author) params.set('author', filter.author)
       if (filter.head) params.set('head', filter.head)
@@ -239,7 +239,7 @@ export function prFilterKey(filter: PrListFilter): string {
     filter.head ?? '',
     filter.base ?? '',
     filter.draft === undefined ? '' : String(filter.draft),
-    filter.state ?? '',
+    filter.state === 'open' ? '' : (filter.state ?? ''),
   ].join('|')
 }
 

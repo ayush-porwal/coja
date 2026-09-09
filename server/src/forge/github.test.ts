@@ -7,6 +7,7 @@ import {
   buildSearchQuery,
   COMMENT_LOCATION_REJECTED,
   deriveMyReviewState,
+  filterKey,
   GitHubForge,
   SUMMARY_REQUIRED,
 } from './github.js'
@@ -1458,4 +1459,14 @@ describe('GitHubForge.listPullRequestPage — filters', () => {
     expect(listCalls).toBe(1)
     expect(searchCalls).toBe(2)
   })
+})
+
+it('shares cursor cache keys for implicit and explicit open filters', () => {
+  const repo = { owner: 'org', repo: 'repo' }
+  expect(filterKey(repo, { author: 'alice', state: 'open' })).toBe(
+    filterKey(repo, { author: 'alice' }),
+  )
+  expect(filterKey(repo, { author: 'alice', state: 'closed' })).not.toBe(
+    filterKey(repo, { author: 'alice' }),
+  )
 })

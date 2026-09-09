@@ -787,6 +787,6 @@ export function filterKey(repo: RepoRef, filter?: PrListFilter): string {
     f.head ?? '',
     f.base ?? '',
     f.draft === undefined ? '' : String(f.draft),
-    f.state ?? '',
+    f.state === 'open' ? '' : (f.state ?? ''),
   ].join('|')
 }

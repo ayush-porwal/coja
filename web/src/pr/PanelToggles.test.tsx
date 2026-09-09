@@ -38,7 +38,11 @@ describe('PanelToggles', () => {
     renderToggles({ treeOpen: false, aiOpen: false, threadCount: 3, chipCount: 1 })
     // The badge glyph is aria-hidden, so the count must reach the accessible name.
     expect(screen.getByRole('button', { name: /3 comment threads/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /1 context chips/ })).toBeTruthy()
+    expect(
+      screen.getByRole('button', {
+        name: `Toggle AI panel, 1 context chip (${panelShortcut(true)})`,
+      }),
+    ).toBeTruthy()
     expect(screen.getByTitle(/Toggle file tree/).textContent).toContain('3')
     expect(screen.getByTitle(/Toggle AI panel/).textContent).toContain('1')
   })

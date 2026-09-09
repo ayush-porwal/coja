@@ -56,7 +56,9 @@ export function PanelToggles({
         open={treeOpen}
         onPress={onToggleTree}
         label={
-          treeBadge > 0 ? `Toggle file tree, ${threadCount} comment threads` : 'Toggle file tree'
+          treeBadge > 0
+            ? `Toggle file tree, ${treeBadge} comment thread${treeBadge === 1 ? '' : 's'}`
+            : 'Toggle file tree'
         }
         shortcut={panelShortcut(false)}
       >
@@ -67,7 +69,11 @@ export function PanelToggles({
         id="coja-toggle-ai"
         open={aiOpen}
         onPress={onToggleAi}
-        label={aiBadge > 0 ? `Toggle AI panel, ${chipCount} context chips` : 'Toggle AI panel'}
+        label={
+          aiBadge > 0
+            ? `Toggle AI panel, ${aiBadge} context chip${aiBadge === 1 ? '' : 's'}`
+            : 'Toggle AI panel'
+        }
         shortcut={panelShortcut(true)}
       >
         <PanelGlyph side="right" open={aiOpen} />
