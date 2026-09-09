@@ -3,15 +3,23 @@ import { createContributorLookup } from './contributors.js'
 
 describe('contributor lookup', () => {
   it('ranks authenticated contributors and reuses concurrent and cached requests', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          { login: 'newcomer', contributions: 2 },
-          { login: 'julius', contributions: 900 },
-          { name: 'anonymous', contributions: 1 },
-        ]),
-      ),
-    )
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            { login: 'newcomer', contributions: 2 },
+            { login: 'julius', contributions: 900 },
+            { name: 'anonymous', contributions: 1 },
+            null,
+            42,
+            true,
+            'invalid',
+            [],
+            { login: 'invalid-count', contributions: '10' },
+          ]),
+        ),
+      )
     const lookup = createContributorLookup({ getToken: async () => 'token', fetchImpl })
     const repo = { owner: 'org', repo: 'repo' }
     const [result, concurrent] = await Promise.all([lookup(repo), lookup(repo)])

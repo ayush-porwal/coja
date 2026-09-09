@@ -45,8 +45,17 @@ export function createContributorLookup({
       if (!Array.isArray(rows))
         throw new ForgeError('GitHub returned unreadable contributors.', 502)
       return rows
-        .filter((row) => typeof row.login === 'string' && typeof row.contributions === 'number')
-        .map((row) => ({ login: row.login as string, contributions: row.contributions as number }))
+        .filter(
+          (row: unknown): row is RepositoryContributor =>
+            typeof row === 'object' &&
+            row !== null &&
+            !Array.isArray(row) &&
+            'login' in row &&
+            typeof row.login === 'string' &&
+            'contributions' in row &&
+            typeof row.contributions === 'number',
+        )
+        .map((row) => ({ login: row.login, contributions: row.contributions }))
         .sort((a, b) => b.contributions - a.contributions)
     })()
     cache.set(key, { until: Date.now() + 30 * 60_000, result })

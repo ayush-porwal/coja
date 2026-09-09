@@ -291,23 +291,27 @@ export function FilterBar({
               className="max-h-80 overflow-y-auto overscroll-contain py-1"
             >
               {suggestions.map((suggestion, index) => (
-                <div key={suggestion.value} role="presentation">
-                  <button
-                    id={`${listId}-${index}`}
-                    type="button"
-                    role="option"
-                    aria-selected={index === active}
-                    tabIndex={-1}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => choose(suggestion)}
-                    className={cn(
-                      'flex w-full cursor-pointer items-center justify-between gap-4 px-3 py-2 text-left text-sm hover:bg-hover',
-                      index === active && 'bg-active',
-                    )}
-                  >
-                    <span className="truncate font-mono text-ink">{suggestion.value}</span>
-                    <span className="text-right text-xs text-muted">{suggestion.description}</span>
-                  </button>
+                <div
+                  key={suggestion.value}
+                  id={`${listId}-${index}`}
+                  role="option"
+                  aria-selected={index === active}
+                  tabIndex={-1}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(suggestion)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      choose(suggestion)
+                    }
+                  }}
+                  className={cn(
+                    'flex w-full cursor-pointer items-center justify-between gap-4 px-3 py-2 text-left text-sm hover:bg-hover',
+                    index === active && 'bg-active',
+                  )}
+                >
+                  <span className="truncate font-mono text-ink">{suggestion.value}</span>
+                  <span className="text-right text-xs text-muted">{suggestion.description}</span>
                 </div>
               ))}
             </div>
