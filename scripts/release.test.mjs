@@ -16,6 +16,7 @@ import { test } from 'node:test'
 import {
   checkPublished,
   compareVersions,
+  main,
   pack,
   prepare,
   publish,
@@ -118,7 +119,16 @@ test('pack installs the exact tarball and rejects registry failures and mismatch
     const metadata = { versions: {}, 'dist-tags': { latest: '0.0.2' } }
     globalThis.fetch = async () => ({ ok: true, json: async () => metadata })
     const release = { version: '0.0.3' }
-    const first = await pack(release, path.join(directory, 'first'))
+    const summary = process.env.GITHUB_STEP_SUMMARY
+    delete process.env.GITHUB_STEP_SUMMARY
+    const metadataPath = path.join(directory, 'release.json')
+    writeFileSync(metadataPath, JSON.stringify(release))
+    try {
+      await main(['pack', metadataPath, path.join(directory, 'first')])
+    } finally {
+      if (summary !== undefined) process.env.GITHUB_STEP_SUMMARY = summary
+    }
+    const first = JSON.parse(readFileSync(metadataPath, 'utf8'))
     assert.equal(first.alreadyPublished, false)
     metadata.versions['0.0.3'] = { dist: { integrity: first.integrity } }
     const retry = await pack(release, path.join(directory, 'retry'))
@@ -169,7 +179,8 @@ test('publish resumes GitHub completion without republishing and never tags a fa
     const publishMarker = path.join(directory, 'npm-published')
     const releaseMarker = path.join(directory, 'github-release')
     const failedMarker = path.join(directory, 'fail-publish')
-    const npmScript = `#!${process.execPath}\nconst fs = require('node:fs'); if (fs.existsSync(${JSON.stringify(failedMarker)})) process.exit(1); fs.appendFileSync(${JSON.stringify(publishMarker)}, 'published\\n')\n`
+    const provenanceMarker = path.join(directory, 'provenance-env.json')
+    const npmScript = `#!${process.execPath}\nconst fs = require('node:fs'); if (fs.existsSync(${JSON.stringify(failedMarker)})) process.exit(1); fs.writeFileSync(${JSON.stringify(provenanceMarker)}, JSON.stringify({sha:process.env.GITHUB_SHA,ref:process.env.GITHUB_REF,workflow:process.env.GITHUB_WORKFLOW_REF})); fs.appendFileSync(${JSON.stringify(publishMarker)}, 'published\\n')\n`
     const ghScript = `#!${process.execPath}\nconst fs = require('node:fs'); if (process.argv[2] === 'api') console.log(JSON.stringify([fs.existsSync(${JSON.stringify(releaseMarker)}) ? [{tag_name:'0.0.3'}] : []])); else fs.writeFileSync(${JSON.stringify(releaseMarker)}, 'created')\n`
     for (const [name, script] of [
       ['npm', npmScript],
@@ -199,6 +210,11 @@ test('publish resumes GitHub completion without republishing and never tags a fa
     await publish(release)
     assert.equal(git('ls-remote', 'origin', 'refs/tags/0.0.3'), `${commit}\trefs/tags/0.0.3`)
     assert.equal(existsSync(releaseMarker), true)
+    assert.deepEqual(JSON.parse(readFileSync(provenanceMarker, 'utf8')), {
+      sha: commit,
+      ref: 'refs/tags/0.0.3',
+      ...(process.env.GITHUB_WORKFLOW_REF ? { workflow: process.env.GITHUB_WORKFLOW_REF } : {}),
+    })
     rmSync(releaseMarker) // Simulate missing GitHub release after successful npm publication.
     await publish(release)
     assert.equal(readFileSync(publishMarker, 'utf8'), 'published\n')

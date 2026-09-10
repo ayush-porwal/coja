@@ -172,7 +172,12 @@ export async function publish(release) {
         '--registry',
         registry,
       ],
-      { stdio: 'inherit' },
+      {
+        stdio: 'inherit',
+        // npm reads these for the attestation's source dependency. Keep the
+        // workflow/run identity unchanged; only the code snapshot differs.
+        env: { ...process.env, GITHUB_SHA: release.commit, GITHUB_REF: `refs/tags/${release.tag}` },
+      },
     )
   }
   // Never announce a release until npm confirms the exact artifact is public.
@@ -221,18 +226,19 @@ export async function publish(release) {
   }
 }
 
-async function main() {
-  const [command, metadataPath, artifactDirectory] = process.argv.slice(2)
+export async function main(args = process.argv.slice(2)) {
+  const [command, metadataPath, artifactDirectory] = args
   if (command === 'prepare') {
     const release = prepare(process.env.RELEASE_SOURCE, process.env.RELEASE_VERSION)
     writeFileSync(metadataPath, JSON.stringify(release, null, 2))
   } else if (command === 'pack') {
     const release = await pack(JSON.parse(readFileSync(metadataPath, 'utf8')), artifactDirectory)
     writeFileSync(metadataPath, JSON.stringify(release, null, 2))
-    appendFileSync(
-      process.env.GITHUB_STEP_SUMMARY,
-      `## Release ${release.version}\n\nSource: ${release.source}\n\nRelease commit: ${release.commit}\n\nTarball integrity: ${release.integrity}\n\nAlready published: ${release.alreadyPublished}\n\nDry run: ${process.env.DRY_RUN}\n`,
-    )
+    if (process.env.GITHUB_STEP_SUMMARY)
+      appendFileSync(
+        process.env.GITHUB_STEP_SUMMARY,
+        `## Release ${release.version}\n\nSource: ${release.source}\n\nRelease commit: ${release.commit}\n\nTarball integrity: ${release.integrity}\n\nAlready published: ${release.alreadyPublished}\n\nDry run: ${process.env.DRY_RUN}\n`,
+      )
   } else if (command === 'publish') {
     await publish(JSON.parse(readFileSync(metadataPath, 'utf8')))
   } else {

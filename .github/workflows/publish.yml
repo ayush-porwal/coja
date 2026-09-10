@@ -49,6 +49,15 @@ jobs:
           path: source
           fetch-depth: 0
 
+      - name: Set up Node for release preparation
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Prepare versioned snapshot from selected source
+        working-directory: source
+        run: node ../release-tools/scripts/release.mjs prepare "$GITHUB_WORKSPACE/release.json"
+
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: source/package.json
@@ -59,10 +68,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: source/pnpm-lock.yaml
           registry-url: https://registry.npmjs.org
-
-      - name: Prepare versioned snapshot from selected source
-        working-directory: source
-        run: node ../release-tools/scripts/release.mjs prepare "$GITHUB_WORKSPACE/release.json"
 
       - name: Install dependencies
         working-directory: source

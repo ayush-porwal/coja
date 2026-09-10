@@ -29,7 +29,9 @@ Only `server/package.json` changes to the requested version. The release tag use
 that version (`0.0.3`, matching the existing `0.0.2` convention) and points to the
 versioned commit. `main` is never moved or given an automatic version bump.
 
-The smoke-tested tarball is the one passed to npm. Registry errors stop the run;
+The smoke-tested tarball is the one passed to npm. npm provenance identifies the
+versioned release commit and tag as its source dependency, while retaining the
+actual workflow and run identity. Registry errors stop the run;
 they are never interpreted as an unused version. Existing versions with different
 integrity or tags pointing elsewhere are rejected. Runs are serialized.
 
