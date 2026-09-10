@@ -1,59 +1,147 @@
 name: Publish
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      source:
+        description: 'Commit SHA or ref from main history (use a SHA for retries)'
+        required: true
+        default: main
+        type: string
+      version:
+        description: 'New stable package version, e.g. 0.0.3'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate and pack without publishing, tags, or GitHub releases'
+        default: true
+        type: boolean
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: publish-main
   cancel-in-progress: false
 
 jobs:
-  publish:
+  validate:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      source: ${{ steps.prepare.outputs.source }}
+    env:
+      RELEASE_SOURCE: ${{ inputs.source }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
+      # Keep release tooling from the workflow commit even when releasing older code.
       - uses: actions/checkout@v6
+        with:
+          path: release-tools
+          persist-credentials: false
+
+      - uses: actions/checkout@v6
+        with:
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node for release preparation
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Prepare versioned snapshot from selected source
+        id: prepare
+        working-directory: source
+        run: node ../release-tools/scripts/release.mjs prepare "$GITHUB_WORKSPACE/release.json"
 
       - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: source/package.json
 
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
+        working-directory: source
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck, lint and test
+      - name: Typecheck, lint and test selected snapshot
+        working-directory: source
         run: pnpm check
 
-      - name: Build (web → server/public, server → server/dist)
+      - name: Build selected snapshot
+        working-directory: source
         run: pnpm build
 
-      - name: Publish only if the version is new
-        id: version
-        working-directory: server
-        run: |
-          local_version="$(node -p "require('./package.json').version")"
-          published_version="$(npm view @ayushporwal/coja version 2>/dev/null || true)"
-          if [ "$local_version" = "$published_version" ]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "Version $local_version is already published — nothing to do."
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "Publishing $local_version (registry has: ${published_version:-nothing})."
-          fi
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11.15.0
 
-      - name: Upgrade the npm CLI (trusted publishing needs >= 11.5)
-        run: npm install -g npm@latest
+      - name: Pack and smoke-test the exact release artifact
+        working-directory: source
+        run: node ../release-tools/scripts/release.mjs pack "$GITHUB_WORKSPACE/release.json" "$GITHUB_WORKSPACE/artifacts"
 
-      - name: Stage the release on npm
-        if: steps.version.outputs.publish == 'true'
-        working-directory: server
-        run: npm stage publish --provenance
+      - name: Save release artifact and metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ inputs.version }}
+          path: |
+            artifacts/*.tgz
+            release.json
+          retention-days: 30
+
+  publish:
+    needs: validate
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      EXPECTED_SOURCE: ${{ needs.validate.outputs.source }}
+    steps:
+      # Only trusted workflow tooling executes here, never selected-source code.
+      - uses: actions/checkout@v6
+        with:
+          path: release-tools
+          persist-credentials: false
+
+      - uses: actions/checkout@v6
+        with:
+          path: source
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11.15.0 --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ inputs.version }}
+          path: release-artifact
+
+      - name: Verify artifact metadata and restore the release commit
+        working-directory: source
+        run: node ../release-tools/scripts/release.mjs restore "$GITHUB_WORKSPACE/release-artifact/release.json" "$GITHUB_WORKSPACE/release-artifact/artifacts"
+
+      - name: Publish verified artifact and create tag and GitHub release
+        working-directory: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node ../release-tools/scripts/release.mjs publish "$GITHUB_WORKSPACE/release-artifact/release.json"
