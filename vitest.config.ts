@@ -5,6 +5,14 @@ export default defineConfig({
     projects: [
       {
         test: {
+          name: 'agent',
+          root: './packages/agent',
+          environment: 'node',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
           name: 'server',
           root: './server',
           environment: 'node',

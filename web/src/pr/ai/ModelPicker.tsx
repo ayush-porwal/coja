@@ -54,7 +54,7 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
               role="group"
               aria-label={PROVIDER_LABELS[provider] ?? list[0]?.providerLabel ?? provider}
             >
-              <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold tracking-wide text-faint uppercase">
+              <p className="px-2.5 pb-1 pt-2 text-xs font-semibold tracking-wide text-faint uppercase">
                 {PROVIDER_LABELS[provider] ?? list[0]?.providerLabel ?? provider}
               </p>
               {list.map((model) => {
@@ -118,9 +118,9 @@ export function EffortPicker({ efforts, value, onChange }: EffortPickerProps) {
             }}
             title={level.description}
           >
-            <span className="min-w-0 flex-1 truncate capitalize">{level.effort}</span>
+            <span className="shrink-0 capitalize">{level.effort}</span>
             {level.description && (
-              <span className="ml-2 min-w-0 truncate text-[10px] text-faint">
+              <span className="ml-2 min-w-0 flex-1 truncate text-xs text-faint">
                 {level.description}
               </span>
             )}

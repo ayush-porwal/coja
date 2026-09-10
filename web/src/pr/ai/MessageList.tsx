@@ -1,6 +1,6 @@
 import { type ChatGptErrorCode, parseChatGptMarker } from '@coja/shared/api'
 import type { ChatStatus } from 'ai'
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { Link } from 'react-router'
 import { Button, ErrorNotice } from '../../ui'
 import { formatRelative } from '../format'
@@ -118,7 +118,9 @@ interface MessageViewProps {
   modelLabel(id: string): string
 }
 
-function MessageView({ message, paths, modelLabel }: MessageViewProps) {
+// The SDK replaces the streaming message while preserving completed message
+// objects. Keep older Markdown/tool results out of each token update's work.
+const MessageView = memo(function MessageView({ message, paths, modelLabel }: MessageViewProps) {
   if (message.role === 'user') {
     return (
       <article
@@ -135,7 +137,7 @@ function MessageView({ message, paths, modelLabel }: MessageViewProps) {
     <article aria-label="Assistant" className="min-w-0 text-ink">
       <MessageParts message={message} paths={paths} />
       {(model || createdAt) && (
-        <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
+        <p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-faint">
           {model && (
             <span className="min-w-0 truncate" title={model}>
               {modelLabel(model)}
@@ -151,7 +153,7 @@ function MessageView({ message, paths, modelLabel }: MessageViewProps) {
       )}
     </article>
   )
-}
+})
 
 export interface SuggestionsProps {
   suggestions: readonly string[]

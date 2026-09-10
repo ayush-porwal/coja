@@ -7,6 +7,7 @@ import {
   buildSearchQuery,
   COMMENT_LOCATION_REJECTED,
   deriveMyReviewState,
+  filterKey,
   GitHubForge,
   SUMMARY_REQUIRED,
 } from './github.js'
@@ -1318,6 +1319,13 @@ describe('GitHubForge.discardPendingReview', () => {
 })
 
 describe('buildSearchQuery', () => {
+  it('replaces the open restriction for closed/merged and removes it for all states', () => {
+    expect(buildSearchQuery(REPO, { state: 'closed', author: 'alice' })).toBe(
+      'repo:acme/widgets is:pr is:closed author:alice',
+    )
+    expect(buildSearchQuery(REPO, { state: 'merged' })).toBe('repo:acme/widgets is:pr is:merged')
+    expect(buildSearchQuery(REPO, { state: 'all' })).toBe('repo:acme/widgets is:pr')
+  })
   it('composes qualifiers with repo/is:pr/is:open', () => {
     expect(buildSearchQuery(REPO, { text: 'fix login', author: 'alice' })).toBe(
       'repo:acme/widgets is:pr is:open fix login in:title author:alice',
@@ -1356,6 +1364,29 @@ describe('buildSearchQuery', () => {
 })
 
 describe('GitHubForge.listPullRequestPage — filters', () => {
+  it('uses the full repository connection for state-only browsing and maps closed states', async () => {
+    const fake = fakeGql({
+      Viewer: VIEWER,
+      PrList: () => ({
+        repository: {
+          pullRequests: conn(
+            [rawSummary({ state: 'CLOSED' }), rawSummary({ id: 'merged', state: 'MERGED' })],
+            { hasNextPage: false, endCursor: null },
+            2400,
+          ),
+        },
+      }),
+    })
+    const forge = new GitHubForge({ gql: fake.gql })
+    const page = await forge.listPullRequestPage(REPO, 1, { state: 'closed' })
+    expect(page.total).toBe(2400)
+    expect(page.items.map((p) => p.state)).toEqual(['CLOSED', 'MERGED'])
+    expect(fake.callsTo('PrList')[0]?.vars.states).toEqual(['CLOSED', 'MERGED'])
+    await forge.listPullRequestPage(REPO, 1, { state: 'all' })
+    expect(fake.callsTo('PrList')[1]?.vars.states).toEqual(['OPEN', 'CLOSED', 'MERGED'])
+    expect(fake.callsTo('PrSearch')).toHaveLength(0)
+  })
+
   it('uses the search query with the built filter string and maps results with issueCount as total', async () => {
     const fake = fakeGql({
       Viewer: VIEWER,
@@ -1428,4 +1459,14 @@ describe('GitHubForge.listPullRequestPage — filters', () => {
     expect(listCalls).toBe(1)
     expect(searchCalls).toBe(2)
   })
+})
+
+it('shares cursor cache keys for implicit and explicit open filters', () => {
+  const repo = { owner: 'org', repo: 'repo' }
+  expect(filterKey(repo, { author: 'alice', state: 'open' })).toBe(
+    filterKey(repo, { author: 'alice' }),
+  )
+  expect(filterKey(repo, { author: 'alice', state: 'closed' })).not.toBe(
+    filterKey(repo, { author: 'alice' }),
+  )
 })

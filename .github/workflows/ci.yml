@@ -25,3 +25,9 @@ jobs:
 
       - name: Typecheck, lint and test
         run: pnpm check
+
+      - name: Build distributable CLI and web assets
+        run: pnpm build
+
+      - name: Verify packed CLI installs outside the workspace
+        run: pnpm test:package

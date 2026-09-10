@@ -48,10 +48,21 @@ export function themeToCssProperties(
   for (const [key, variable] of Object.entries(CHROME_VARIABLES) as [string, string][]) {
     styles[variable] = variant[key as keyof CojaPalette['light']]
   }
+  // Neutral surfaces share the canvas; borders and interaction tokens provide hierarchy.
+  for (const role of ['chrome', 'card', 'overlay', 'panel', 'code']) {
+    styles[`--coja-${role}`] = variant.canvas
+  }
+  styles['--coja-scrim'] = 'oklch(0 0 0 / 0.4)'
+  styles['--coja-skeleton'] = `color-mix(in srgb, ${variant.ink} 12%, ${variant.canvas})`
   // The brand fill is not always legible as small text (especially Mulberry
   // dark). Keep fill and foreground roles separate without losing the hue.
   styles['--coja-accent-text'] =
     `color-mix(in srgb, ${variant.accent} ${appearance === 'dark' ? 38 : 65}%, ${variant.ink})`
+  // Status text must remain legible on both the canvas and status badges.
+  for (const role of ['ok', 'danger', 'caution'] as const) {
+    styles[`--coja-${role}-text`] =
+      `color-mix(in srgb, ${variant[role]} ${appearance === 'dark' ? 65 : 50}%, ${variant.ink})`
+  }
   // Status fills also need their own foreground pairing for solid actions.
   for (const role of ['ok', 'danger'] as const) {
     styles[`--coja-${role}-button`] =
@@ -69,16 +80,16 @@ export function themeToCssProperties(
  * reference, both backgrounds (the stylesheet picks per colour scheme), and the
  * row-tint overrides.
  *
- * The surface/tint recipes below are t3code's DIFF_SURFACE_THEME
- * (apps/web/src/lib/diffRendering.ts) copied verbatim: sRGB mixes against the
- * code surface and — for changed rows — against the full-strength ok/danger
- * colours. Their `light-dark(light, dark)` pairs are resolved per appearance
+ * Changed-row recipes come from t3code's DIFF_SURFACE_THEME
+ * (apps/web/src/lib/diffRendering.ts): sRGB mixes against the shared canvas
+ * and the full-strength ok/danger colours. Neutral surfaces stay on canvas.
+ * The `light-dark(light, dark)` pairs are resolved per appearance
  * here, because applyTheme knows which appearance it is painting.
  */
 function diffVariables(palette: CojaPalette, appearance: ThemeAppearance): Record<string, string> {
   const variant = palette[appearance]
   const tokens = palette.syntax[appearance]
-  const code = variant.code
+  const code = variant.canvas
   const codeInk = variant.codeInk
   // sRGB mixing (not lab): it preserves the saturation that makes the changed
   // rows read as solid bands, exactly as in t3code's own diff panel.
@@ -107,12 +118,12 @@ function diffVariables(palette: CojaPalette, appearance: ThemeAppearance): Recor
     '--diffs-token-changed': variant.caution,
     // Diff surface: both slots so `light-dark()` inside the shadow tree picks
     // the right one whichever appearance CodeView is told to render.
-    '--diffs-light-bg': palette.light.code,
-    '--diffs-dark-bg': palette.dark.code,
-    // Unchanged-row surfaces (t3code's ratios against the code foreground).
-    '--diffs-bg-context-override': mix(97, codeInk),
-    '--diffs-bg-separator-override': mix(95, codeInk),
-    '--diffs-bg-buffer-override': mix(90, codeInk),
+    '--diffs-light-bg': palette.light.canvas,
+    '--diffs-dark-bg': palette.dark.canvas,
+    // Unchanged rows and their surrounding space share the application canvas.
+    '--diffs-bg-context-override': code,
+    '--diffs-bg-separator-override': code,
+    '--diffs-bg-buffer-override': code,
     '--diffs-bg-hover-override': mix(94, codeInk),
     '--diffs-bg-selection-override': mix(82, variant.accent),
     '--diffs-bg-selection-number-override': mix(70, variant.accent),

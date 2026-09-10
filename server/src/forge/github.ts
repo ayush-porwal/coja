@@ -16,6 +16,7 @@ import type {
   PullRequestPage,
   PullRequestSummary,
   ReplyResponse,
+  RepositoryContributor,
   ReviewComment,
   ReviewState,
   ReviewThread,
@@ -50,9 +51,11 @@ export const SUMMARY_REQUIRED = 'Write a summary or add at least one comment fir
 
 export interface GitHubForgeOptions {
   gql: GqlFn
+  contributors?: (repo: RepoRef) => Promise<RepositoryContributor[]>
 }
 
 export class GitHubForge implements Forge {
+  readonly listContributors: (repo: RepoRef) => Promise<RepositoryContributor[]>
   private readonly gql: GqlFn
   private viewerPromise: Promise<Actor> | undefined
   /** `owner/repo` + filter → page number → that page's start cursor (page 1 needs none). */
@@ -62,6 +65,7 @@ export class GitHubForge implements Forge {
 
   constructor(opts: GitHubForgeOptions) {
     this.gql = opts.gql
+    this.listContributors = opts.contributors ?? (async () => [])
   }
 
   viewer(): Promise<Actor> {
@@ -77,7 +81,7 @@ export class GitHubForge implements Forge {
   }
 
   /**
-   * One page of open PRs. A page is exactly one GraphQL page (100 nodes), so
+   * One page of PRs. A page is exactly one GraphQL page (100 nodes), so
    * serving page N needs the start cursor of page N: cursors are cached per
    * repo as they are seen, and a jump past the deepest cached page walks
    * forward one 100-node query at a time, caching as it goes — later visits
@@ -90,7 +94,9 @@ export class GitHubForge implements Forge {
   ): Promise<PullRequestPage> {
     const wanted = Math.max(1, Math.trunc(page))
     const { login } = await this.viewer()
-    const filtered = filter !== undefined && !isEmptyFilter(filter)
+    // State-only browsing uses the repository connection: GitHub search is
+    // capped at 1,000 results, which would hide most closed PRs in large repos.
+    const filtered = filter !== undefined && !isEmptyFilter({ ...filter, state: undefined })
     // Cursors are cached per repo AND per filter (each filter pages independently).
     const cursors = this.prPageCursors(repo, filter)
     // Deepest page at or before the wanted one whose start cursor we know:
@@ -117,6 +123,16 @@ export class GitHubForge implements Forge {
               name: repo.repo,
               login,
               after,
+              ...(filter?.state && filter.state !== 'open'
+                ? {
+                    states:
+                      filter.state === 'all'
+                        ? ['OPEN', 'CLOSED', 'MERGED']
+                        : filter.state === 'closed'
+                          ? ['CLOSED', 'MERGED']
+                          : ['MERGED'],
+                  }
+                : {}),
             }),
             repo,
           )
@@ -594,6 +610,7 @@ export function mapSummary(pr: q.RawPrSummary): PullRequestSummary {
     updatedAt: pr.updatedAt,
     createdAt: pr.createdAt,
     isDraft: pr.isDraft,
+    state: pr.state ?? 'OPEN',
     url: pr.url,
     additions: pr.additions,
     deletions: pr.deletions,
@@ -735,7 +752,8 @@ const quote = (value: string): string =>
  * hex token doubles as a commit-SHA search, which GitHub handles natively.
  */
 export function buildSearchQuery(repo: RepoRef, filter?: PrListFilter): string {
-  const parts = [`repo:${repo.owner}/${repo.repo}`, 'is:pr', 'is:open']
+  const parts = [`repo:${repo.owner}/${repo.repo}`, 'is:pr']
+  if (filter?.state !== 'all') parts.push(`is:${filter?.state ?? 'open'}`)
   const text = filter?.text?.trim()
   if (text) {
     // A bare hex SHA must go WITHOUT `in:title`: GitHub matches it to the PR
@@ -769,5 +787,6 @@ export function filterKey(repo: RepoRef, filter?: PrListFilter): string {
     f.head ?? '',
     f.base ?? '',
     f.draft === undefined ? '' : String(f.draft),
+    f.state === 'open' ? '' : (f.state ?? ''),
   ].join('|')
 }

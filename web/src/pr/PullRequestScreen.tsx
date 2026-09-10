@@ -99,39 +99,88 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
   const [reviewOpen, setReviewOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [chipCount, setChipCount] = useState(0)
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 767px)').matches)
+  const [mobilePanel, setMobilePanel] = useState<'tree' | 'ai' | null>(null)
+  const showTree = compact ? mobilePanel === 'tree' : treeOpen
+  const showAi = compact ? mobilePanel === 'ai' : aiOpen
 
   const treeAside = useRef<HTMLElement | null>(null)
   const aiAside = useRef<HTMLElement | null>(null)
+  const centerPane = useRef<HTMLElement | null>(null)
+
+  // Hiding a focused panel makes the browser drop focus to <body> before any
+  // effect can observe where it was (jsdom doesn't model this), so ownership
+  // is captured at the moment a hide is triggered and spent by the effect below.
+  const panelOwnsFocus = useRef(false)
+  const notePanelFocus = useCallback(() => {
+    const active = document.activeElement
+    panelOwnsFocus.current = Boolean(
+      active !== document.body &&
+        (treeAside.current?.contains(active) || aiAside.current?.contains(active)),
+    )
+  }, [])
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)')
+    // Crossing the breakpoint can hide a panel (persisted-open panels collapse
+    // to `mobilePanel: null`), so capture focus ownership before `setCompact`.
+    const update = () => {
+      notePanelFocus()
+      setCompact(media.matches)
+    }
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [notePanelFocus])
+
+  useEffect(() => {
+    if (compact && mobilePanel === null && panelOwnsFocus.current) {
+      panelOwnsFocus.current = false
+      centerPane.current?.focus()
+    }
+  }, [compact, mobilePanel])
 
   // Collapsing a panel that holds the keyboard focus would drop focus onto
-  // <body>; park it on the panel's toggle instead.
+  // <body>; park it on the panel's toggle instead (and cancel the center-pane
+  // hand-off — the toggle keeps focus).
   const moveFocusToToggle = useCallback((aside: HTMLElement | null, toggleId: string) => {
     const active = document.activeElement
     if (aside && active !== null && active !== document.body && aside.contains(active)) {
+      panelOwnsFocus.current = false
       document.getElementById(toggleId)?.focus()
     }
   }, [])
   const toggleTree = useCallback(() => {
+    notePanelFocus()
     moveFocusToToggle(treeAside.current, 'coja-toggle-tree')
-    setTreeOpen((open) => !open)
-  }, [moveFocusToToggle, setTreeOpen])
+    if (compact) setMobilePanel((panel) => (panel === 'tree' ? null : 'tree'))
+    else setTreeOpen((open) => !open)
+  }, [compact, moveFocusToToggle, notePanelFocus, setTreeOpen])
   const toggleAi = useCallback(() => {
+    notePanelFocus()
     moveFocusToToggle(aiAside.current, 'coja-toggle-ai')
-    setAiOpen((open) => !open)
-  }, [moveFocusToToggle, setAiOpen])
+    if (compact) setMobilePanel((panel) => (panel === 'ai' ? null : 'ai'))
+    else setAiOpen((open) => !open)
+  }, [compact, moveFocusToToggle, notePanelFocus, setAiOpen])
   usePanelShortcuts({ onToggleTree: toggleTree, onToggleAi: toggleAi })
 
-  const openFile = useCallback((path: string, line?: number, side?: ScrollRequest['side']) => {
-    nonce.current += 1
-    setSelection({ kind: 'file', path })
-    setScrollRequest({ path, line, side, nonce: nonce.current })
-  }, [])
+  const openFile = useCallback(
+    (path: string, line?: number, side?: ScrollRequest['side']) => {
+      nonce.current += 1
+      notePanelFocus()
+      setSelection({ kind: 'file', path })
+      setScrollRequest({ path, line, side, nonce: nonce.current })
+      setMobilePanel(null)
+    },
+    [notePanelFocus],
+  )
 
   // The top bar's Changes segments: switch the layout, and leave Conversation
   // for the first changed file (the top of the diff) without forcing a jump
   // when the reviewer is already reading deeper into the diff.
   const selectChanges = useCallback(
     (style: DiffStyle) => {
+      notePanelFocus()
+      setMobilePanel(null)
       setDiffStyle(style)
       setSelection((prev) => {
         if (prev.kind === 'file') return prev
@@ -139,16 +188,27 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
         return first ? { kind: 'file', path: first } : prev
       })
     },
-    [pr.data, setDiffStyle],
+    [notePanelFocus, pr.data, setDiffStyle],
   )
-  const selectConversation = useCallback(() => setSelection(OVERVIEW), [])
+  const selectConversation = useCallback(() => {
+    notePanelFocus()
+    setSelection(OVERVIEW)
+    setMobilePanel(null)
+  }, [notePanelFocus])
 
   // Citations in AI output navigate the diff; "Ask AI" reveals the panel.
   useEffect(
     () => bridge.onScrollToLine((target) => openFile(target.path, target.line, target.side)),
     [openFile],
   )
-  useEffect(() => bridge.onAttachSelection(() => setAiOpen(true)), [setAiOpen])
+  useEffect(
+    () =>
+      bridge.onAttachSelection(() => {
+        if (compact) setMobilePanel('ai')
+        else setAiOpen(true)
+      }),
+    [compact, setAiOpen],
+  )
 
   useEffect(() => {
     if (!toast) return
@@ -171,9 +231,9 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
         diffStyle={diffStyle}
         onConversation={selectConversation}
         onChanges={selectChanges}
-        treeOpen={treeOpen}
+        treeOpen={showTree}
         onToggleTree={toggleTree}
-        aiOpen={aiOpen}
+        aiOpen={showAi}
         onToggleAi={toggleAi}
         threadCount={detail?.threads.length ?? 0}
         chipCount={chipCount}
@@ -187,9 +247,9 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
               narrow window can never squeeze the diff away — CSS recomputes live on resize. */}
           <aside
             ref={treeAside}
-            hidden={!treeOpen}
-            style={{ width: `min(${treeWidth}px, calc(50vw - 140px))` }}
-            className="flex shrink-0 flex-col border-edge border-r bg-panel"
+            hidden={!showTree}
+            style={{ width: compact ? '100%' : `min(${treeWidth}px, calc(50vw - 140px))` }}
+            className="flex min-w-0 shrink-0 flex-col border-edge border-r bg-panel"
             aria-label="File tree"
           >
             <Sidebar
@@ -197,11 +257,11 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
               threads={detail.threads}
               conversationCount={detail.conversation.length}
               selection={selection}
-              onSelectOverview={() => setSelection(OVERVIEW)}
+              onSelectOverview={selectConversation}
               onSelectFile={(path) => openFile(path)}
             />
           </aside>
-          {treeOpen && (
+          {showTree && !compact && (
             <PanelResizeHandle
               side="left"
               width={treeWidth}
@@ -212,7 +272,12 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
             />
           )}
 
-          <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <main
+            ref={centerPane}
+            tabIndex={-1}
+            hidden={compact && mobilePanel !== null}
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+          >
             {selection.kind === 'overview' ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <Overview detail={detail} />
@@ -236,7 +301,7 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
             )}
           </main>
 
-          {aiOpen && (
+          {showAi && !compact && (
             <PanelResizeHandle
               side="right"
               width={aiWidth}
@@ -249,9 +314,9 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
           {/* Kept mounted while collapsed so attached chips survive the toggle (same viewport cap as the tree). */}
           <aside
             ref={aiAside}
-            hidden={!aiOpen}
-            style={{ width: `min(${aiWidth}px, calc(50vw - 140px))` }}
-            className="flex shrink-0 flex-col border-edge border-l bg-panel"
+            hidden={!showAi}
+            style={{ width: compact ? '100%' : `min(${aiWidth}px, calc(50vw - 140px))` }}
+            className="flex min-w-0 shrink-0 flex-col border-edge border-l bg-panel"
             aria-label="AI panel"
           >
             <AiPanel
@@ -268,13 +333,13 @@ function ReviewScreen({ projectId, number }: ReviewScreenProps) {
           role="status"
         >
           {pr.isError ? (
-            <div className="max-w-md rounded-md border border-danger bg-danger-soft p-4 text-danger">
+            <div className="max-w-md rounded-md border border-danger bg-canvas p-4 text-danger-text">
               <p className="font-medium">Could not load pull request #{number}</p>
               <p className="mt-1 break-words text-xs">{pr.error.message}</p>
               <button
                 type="button"
                 onClick={() => void pr.refetch()}
-                className="mt-3 rounded bg-danger px-3 py-1 font-medium text-xs text-white hover:opacity-90"
+                className="mt-3 rounded bg-danger-button px-3 py-1 font-medium text-xs text-status-button-ink hover:opacity-90"
               >
                 Retry
               </button>

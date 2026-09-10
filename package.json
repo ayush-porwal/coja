@@ -7,13 +7,14 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "dev": "concurrently -k -n server,web -c blue,green \"pnpm --filter @ayushporwal/coja dev\" \"pnpm --filter @coja/web dev\"",
-    "build": "pnpm --filter @coja/web build && pnpm --filter @ayushporwal/coja build",
-    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "dev": "pnpm --filter @coja/agent build && concurrently -k -n harness,server,web -c yellow,blue,green \"pnpm --filter @coja/agent dev\" \"pnpm --filter @ayushporwal/coja dev\" \"pnpm --filter @coja/web dev\"",
+    "build": "pnpm --filter @coja/agent build && pnpm --filter @coja/web build && pnpm --filter @ayushporwal/coja build",
+    "typecheck": "pnpm --filter @coja/agent build && tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && pnpm --filter @coja/agent typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "vitest run",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "test": "pnpm --filter @coja/agent build && vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "test:package": "node server/scripts/check-package.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
@@ -28,6 +29,9 @@
   "pnpm": {
     "ignoredBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "patchedDependencies": {
+      "@pierre/diffs@1.4.0": "patches/@pierre__diffs@1.4.0.patch"
+    }
   }
 }

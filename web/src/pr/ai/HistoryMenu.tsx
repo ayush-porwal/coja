@@ -133,7 +133,7 @@ export function HistoryMenu({ chats, loading, currentId, onSelect, onDelete }: H
                         triggerRef.current?.focus()
                         onDelete(chat.id)
                       }}
-                      className="shrink-0 rounded px-2 text-faint hover:bg-hover hover:text-danger"
+                      className="shrink-0 rounded px-2 text-faint hover:bg-hover hover:text-danger-text"
                     >
                       ×
                     </button>

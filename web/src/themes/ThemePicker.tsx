@@ -61,7 +61,7 @@ export function ThemePicker() {
                 key={option.value}
                 htmlFor={inputId}
                 className={cn(
-                  'flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium',
+                  'flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus',
                   selected
                     ? 'bg-accent text-accent-ink'
                     : 'text-muted hover:bg-hover hover:text-ink',

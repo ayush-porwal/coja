@@ -10,6 +10,7 @@ import { registerPullRoutes } from './pulls.js'
 
 export function fakeForge(): { [K in keyof Forge]: ReturnType<typeof vi.fn<Forge[K]>> } {
   return {
+    listContributors: vi.fn<Forge['listContributors']>().mockResolvedValue([]),
     viewer: vi.fn<Forge['viewer']>(),
     listPullRequestPage: vi.fn<Forge['listPullRequestPage']>(),
     getPullRequestRefs: vi.fn<Forge['getPullRequestRefs']>(),
@@ -138,6 +139,30 @@ describe('pull request routes', () => {
     )
   })
 
+  it('passes state filters from both API forms and rejects invalid structured states', async () => {
+    const { app, forge, project } = setup()
+    forge.listPullRequestPage.mockResolvedValue({
+      items: [],
+      page: 1,
+      perPage: 100,
+      total: 0,
+      totalPages: 1,
+    })
+    for (const state of ['closed', 'merged', 'all']) {
+      for (const query of [`state=${state}`, `q=is:${state}`]) {
+        const response = await app.request(`${API_ROUTES.prs(project.id)}?${query}&page=2`)
+        expect(response.status).toBe(200)
+        expect(forge.listPullRequestPage).toHaveBeenLastCalledWith(
+          { owner: 'acme', repo: 'widgets' },
+          2,
+          expect.objectContaining({ state }),
+        )
+      }
+    }
+    const invalid = await app.request(`${API_ROUTES.prs(project.id)}?state=invalid`)
+    expect(invalid.status).toBe(400)
+  })
+
   it('GET pr returns the detail', async () => {
     const { app, forge, project } = setup()
     const detail = {
@@ -189,4 +214,14 @@ describe('pull request routes', () => {
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: 'Pull request #9 was not found', code: 'github' })
   })
+})
+
+it('loads contributors for the resolved project and rejects missing projects', async () => {
+  const { app, forge, project } = setup()
+  forge.listContributors.mockResolvedValue([{ login: 'julius', contributions: 900 }])
+  const response = await app.request(API_ROUTES.contributors(project.id))
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual([{ login: 'julius', contributions: 900 }])
+  expect(forge.listContributors).toHaveBeenCalledWith({ owner: 'acme', repo: 'widgets' })
+  expect((await app.request(API_ROUTES.contributors('missing'))).status).toBe(404)
 })

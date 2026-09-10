@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@pierre/diffs@1.4.0':
+    hash: 5a2d88454ca2959049d183fa360733c3ed33807976017982e73720d0578fa6a6
+    path: patches/@pierre__diffs@1.4.0.patch
+
 importers:
 
   .:
@@ -33,6 +38,21 @@ importers:
         specifier: 5.0.0
         version: 5.0.0(@types/node@22.20.1)(jsdom@30.0.1)(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13))
 
+  packages/agent:
+    dependencies:
+      '@ai-sdk/provider':
+        specifier: 4.0.10
+        version: 4.0.10
+      '@ai-sdk/provider-utils':
+        specifier: 5.0.36
+        version: 5.0.36(zod@4.5.4)
+      ai:
+        specifier: 7.0.92
+        version: 7.0.92(zod@4.5.4)
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
   server:
     dependencies:
       '@ai-sdk/anthropic':
@@ -56,15 +76,22 @@ importers:
       zod:
         specifier: 4.5.4
         version: 4.5.4
+    devDependencies:
+      '@coja/agent':
+        specifier: workspace:^
+        version: link:../packages/agent
 
   web:
     dependencies:
       '@ai-sdk/react':
         specifier: 4.0.95
         version: 4.0.95(react@19.2.8)(zod@4.5.4)
+      '@coja/agent':
+        specifier: workspace:^
+        version: link:../packages/agent
       '@pierre/diffs':
         specifier: 1.4.0
-        version: 1.4.0(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 1.4.0(patch_hash=5a2d88454ca2959049d183fa360733c3ed33807976017982e73720d0578fa6a6)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@pierre/trees':
         specifier: 1.0.0-beta.6
         version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(shiki@4.4.3)
@@ -2227,7 +2254,7 @@ snapshots:
 
   '@oxc-project/types@0.148.0': {}
 
-  '@pierre/diffs@1.4.0(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@pierre/diffs@1.4.0(patch_hash=5a2d88454ca2959049d183fa360733c3ed33807976017982e73720d0578fa6a6)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(shiki@4.4.3)

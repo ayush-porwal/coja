@@ -39,7 +39,7 @@ export function ContextDialog({ open, onClose, projectId, number }: ContextDialo
         onClose()
       }}
       aria-labelledby="ai-context-title"
-      className="m-auto w-[min(48rem,calc(100vw-2rem))] rounded-lg border border-edge bg-card p-0 text-sm text-ink shadow-xl backdrop:bg-black/40"
+      className="m-auto w-[min(48rem,calc(100vw-2rem))] rounded-lg border border-edge bg-card p-0 text-sm text-ink shadow-xl backdrop:bg-scrim"
     >
       {open && (
         <div className="flex max-h-[85vh] flex-col">
@@ -76,7 +76,7 @@ export function ContextDialog({ open, onClose, projectId, number }: ContextDialo
                 <h3 className="mt-4 mb-1 font-medium">System prompt</h3>
                 <pre
                   data-testid="system-prompt"
-                  className="max-h-[45vh] overflow-auto whitespace-pre-wrap break-words rounded border border-edge bg-canvas p-3 font-mono text-[11px] leading-snug"
+                  className="max-h-[45vh] overflow-auto whitespace-pre-wrap break-words rounded border border-edge bg-canvas p-3 font-mono text-xs leading-snug"
                 >
                   {context.data.system}
                 </pre>

@@ -74,6 +74,30 @@ function makeApp(opts: { chatgpt?: ChatGptConnection; fetchImpl?: typeof fetch }
 }
 
 describe('GET /api/setup/status', () => {
+  it('starts provider key checks while the GitHub status request is still pending', async () => {
+    const t = makeApp()
+    await t.postCustomProvider({
+      name: 'Local',
+      baseUrl: 'http://localhost:11434/v1',
+      apiFormat: 'openai',
+      models: ['test'],
+    })
+    let finish!: (status: GhAuthStatus) => void
+    t.ghAuthStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const keys = vi.spyOn(t.secrets, 'get')
+    const pending = t.getStatus()
+    try {
+      await vi.waitFor(() => expect(keys).toHaveBeenCalled())
+    } finally {
+      finish({ ok: true, login: 'octocat', host: 'github.com' })
+    }
+    expect((await pending).customProviders).toHaveLength(1)
+  })
   it('reports gh, the secrets backend and an incomplete setup', async () => {
     const t = makeApp()
     expect(await t.getStatus()).toEqual({

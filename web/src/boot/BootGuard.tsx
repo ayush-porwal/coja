@@ -39,7 +39,7 @@ export function BootGuard({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
-function Splash() {
+export function Splash() {
   // Reads the persisted palette + OS appearance directly: the theme provider
   // mounts later and the splash must be on-theme from the first frame.
   let paletteId = 'mulberry'
@@ -92,7 +92,7 @@ function BootError({
         className="w-full max-w-md rounded-lg border border-edge bg-card p-6 text-ink shadow-xs"
       >
         <p className="text-base font-semibold tracking-tight">coja can't reach its server</p>
-        <p className="mt-2 break-words font-mono text-xs text-danger">{message}</p>
+        <p className="mt-2 break-words font-mono text-xs text-danger-text">{message}</p>
         <p className="mt-2 text-sm text-muted">
           Is <code className="font-mono">coja</code> still running in your terminal? Start it again,
           then retry.

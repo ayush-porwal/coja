@@ -20,6 +20,37 @@ afterAll(async () => {
 })
 
 describe('createApp', () => {
+  it('revalidates unchanged fonts without a response body and notices replacements', async () => {
+    const fontPath = path.join(publicDir, 'font.woff2')
+    await writeFile(fontPath, 'font-version-one')
+    const app = createApp({ publicDir })
+    const first = await app.request('/font.woff2')
+    const etag = first.headers.get('etag') ?? ''
+    expect(etag).toMatch(/^W\//)
+    const unchanged = await app.request('/font.woff2', {
+      headers: { 'if-none-match': `"another", ${etag}` },
+    })
+    expect(unchanged.status).toBe(304)
+    expect(await unchanged.text()).toBe('')
+    expect(unchanged.headers.get('cache-control')).toBe('no-cache')
+    expect(unchanged.headers.get('content-length')).toBeNull()
+    await writeFile(fontPath, 'font-version-two-with-new-glyphs')
+    const changed = await app.request('/font.woff2', { headers: { 'if-none-match': etag } })
+    expect(changed.status).toBe(200)
+    expect(changed.headers.get('etag')).not.toBe(etag)
+    expect(await changed.text()).toBe('font-version-two-with-new-glyphs')
+  })
+
+  it('preserves document security headers when the SPA shell is revalidated', async () => {
+    const app = createApp({ publicDir })
+    const first = await app.request('/some/route')
+    const res = await app.request('/some/route', {
+      headers: { 'if-none-match': first.headers.get('etag') ?? '' },
+    })
+    expect(res.status).toBe(304)
+    expect(res.headers.get('content-security-policy')).toBe(CONTENT_SECURITY_POLICY)
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+  })
   it('GET /api/health reports ok and the package version', async () => {
     const res = await createApp({ publicDir }).request('/api/health')
     expect(res.status).toBe(200)

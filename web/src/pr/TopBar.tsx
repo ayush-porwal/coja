@@ -159,7 +159,7 @@ export function TopBar({
       >
         Review
         {pendingCount > 0 && (
-          <span className="rounded-full bg-black/20 px-1.5 text-[11px] leading-4">
+          <span className="rounded-full bg-accent-ink/15 px-1.5 text-xs leading-4">
             {pendingCount}
             <span className="sr-only"> pending comments</span>
           </span>
@@ -183,7 +183,7 @@ function FetchPill({ status, error, onRetry }: FetchPillProps) {
     const message = error?.message ?? status?.error ?? 'Fetch failed'
     return (
       <span
-        className={`${pillBase} border-danger max-w-[min(28rem,calc(100vw-2rem))] bg-danger-soft text-danger`}
+        className={`${pillBase} border-danger max-w-[min(28rem,calc(100vw-2rem))] bg-danger-soft text-danger-text`}
         role="status"
       >
         <span className="truncate" title={message}>
@@ -198,7 +198,7 @@ function FetchPill({ status, error, onRetry }: FetchPillProps) {
   if (status?.state === 'ready') {
     return (
       <span
-        className={`${pillBase} border-ok bg-ok-soft text-ok`}
+        className={`${pillBase} border-ok bg-ok-soft text-ok-text`}
         role="status"
         title={status.headOid ? `head ${status.headOid.slice(0, 7)}` : undefined}
       >
@@ -209,7 +209,7 @@ function FetchPill({ status, error, onRetry }: FetchPillProps) {
   return (
     <span className={`${pillBase} border-edge text-muted`} role="status">
       <span
-        className="inline-block h-2 w-2 animate-pulse rounded-full bg-caution"
+        className="inline-block h-2 w-2 motion-safe:animate-pulse rounded-full bg-caution"
         aria-hidden="true"
       />
       Fetching objects…

@@ -7,9 +7,11 @@ import {
   type DirListing,
   type FetchCustomModelsRequest,
   type FetchCustomModelsResponse,
+  isEmptyFilter,
   type PrListFilter,
   type Project,
   type PullRequestPage,
+  type RepositoryContributor,
   type SetupStatus,
 } from '@coja/shared/api'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -217,6 +219,7 @@ export function usePullRequests(projectId: string, page: number, filter: PrListF
     queryFn: () => {
       const params = new URLSearchParams()
       if (page > 1) params.set('page', String(page))
+      if (filter.state && filter.state !== 'open') params.set('state', filter.state)
       if (filter.text) params.set('text', filter.text)
       if (filter.author) params.set('author', filter.author)
       if (filter.head) params.set('head', filter.head)
@@ -236,10 +239,20 @@ export function prFilterKey(filter: PrListFilter): string {
     filter.head ?? '',
     filter.base ?? '',
     filter.draft === undefined ? '' : String(filter.draft),
+    filter.state === 'open' ? '' : (filter.state ?? ''),
   ].join('|')
 }
 
 /** True when no filter field is set. */
 export function isPrFilterEmpty(filter: PrListFilter): boolean {
-  return prFilterKey(filter) === '||||'
+  return isEmptyFilter(filter)
+}
+
+export function useContributors(projectId: string) {
+  return useQuery({
+    queryKey: ['contributors', projectId],
+    queryFn: () => api.get<RepositoryContributor[]>(API_ROUTES.contributors(projectId)),
+    staleTime: 30 * 60_000,
+    retry: false,
+  })
 }

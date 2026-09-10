@@ -32,10 +32,12 @@ export function CommentComposer({
   }
 
   return (
-    <div className="my-1 rounded-md border border-accent bg-card p-2 text-sm shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-xs text-muted">
+    <div className="my-1 min-w-0 rounded-md border border-accent bg-card p-2 font-sans text-sm shadow-sm">
+      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
         <span className="font-medium text-muted">New review comment</span>
-        <span className="truncate font-mono">{describeRange(path, range)}</span>
+        <span className="min-w-0 truncate font-mono" title={describeRange(path, range)}>
+          {describeRange(path, range)}
+        </span>
       </div>
       <textarea
         ref={textareaRef}
@@ -53,14 +55,14 @@ export function CommentComposer({
         rows={3}
         disabled={pending}
         placeholder="Leave a comment — it joins your pending review, invisible to others until you submit"
-        className="w-full resize-y rounded border-edge-strong bg-card px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
+        className="w-full resize-y rounded border border-edge-strong bg-canvas px-2 py-1.5 text-base text-ink outline-none focus:border-focus focus:ring-1 focus:ring-focus"
       />
       {error && (
-        <p role="alert" className="mt-1 text-xs text-danger">
+        <p role="alert" className="mt-1 break-words text-xs text-danger-text">
           {error}
         </p>
       )}
-      <div className="mt-2 flex items-center justify-end gap-2">
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}

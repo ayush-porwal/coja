@@ -2,7 +2,7 @@ import type { ComponentProps } from 'react'
 import { cn } from './cn'
 
 export const controlClass = cn(
-  'h-8 w-full rounded-md border bg-canvas px-2.5 text-sm text-ink shadow-xs',
+  'h-8 w-full rounded-md border bg-canvas px-2.5 text-base sm:text-sm text-ink shadow-xs',
   'placeholder:text-faint disabled:cursor-not-allowed disabled:opacity-50',
   'focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-focus',
 )

@@ -58,7 +58,7 @@ export function AppShell({ breadcrumb, actions, children }: AppShellProps) {
   const crumb = breadcrumb ?? (setupActive ? 'Settings' : null)
   return (
     <div className="min-h-screen bg-canvas text-ink">
-      <header className="sticky top-0 z-10 border-b border-edge bg-chrome/90 backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-edge bg-chrome">
         <div className="mx-auto flex h-12 max-w-5xl items-center gap-2.5 px-4">
           <Link
             to="/"

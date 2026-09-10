@@ -63,7 +63,7 @@ function Part({ part, index, role, paths }: PartProps) {
     case 'reasoning':
       if (part.text === '' && part.state !== 'streaming') return null
       return (
-        <details className="group my-1 overflow-hidden rounded-lg bg-active text-xs text-muted">
+        <details className="group my-1 overflow-hidden rounded-lg border border-edge bg-canvas text-xs text-muted">
           <summary className="flex cursor-pointer select-none list-none items-center gap-1.5 px-2.5 py-1.5 transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden">
             <svg
               aria-hidden="true"
@@ -145,7 +145,10 @@ export function ToolCallCard({ part }: ToolCallCardProps) {
       {/* Failed calls open by default so the error is seen without a click.
           One enveloping surface: the summary is the pill row, the payload
           opens directly beneath it inside the same rounded container. */}
-      <details className="group overflow-hidden rounded-lg bg-active" open={failed || undefined}>
+      <details
+        className="group overflow-hidden rounded-lg border border-edge bg-canvas"
+        open={failed || undefined}
+      >
         <summary className="flex cursor-pointer select-none list-none items-center gap-2 px-2.5 py-1.5 transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden">
           <ToolIcon />
           <code className="min-w-0 flex-1 truncate font-mono text-ink" title={summary}>
@@ -153,12 +156,12 @@ export function ToolCallCard({ part }: ToolCallCardProps) {
           </code>
           {running && <Spinner size="sm" label="Running" className="text-muted" />}
           {done && (
-            <span role="img" aria-label="Completed" className="shrink-0 text-ok">
+            <span role="img" aria-label="Completed" className="shrink-0 text-ok-text">
               ✓
             </span>
           )}
           {failed && (
-            <span role="img" aria-label="Failed" className="shrink-0 text-danger">
+            <span role="img" aria-label="Failed" className="shrink-0 text-danger-text">
               ✗
             </span>
           )}
@@ -182,7 +185,7 @@ export function ToolCallCard({ part }: ToolCallCardProps) {
           </svg>
         </summary>
         <div className="max-h-80 overflow-auto border-edge border-t bg-canvas px-2.5 py-2">
-          {failed && <p className="mb-1.5 break-words text-danger">{part.errorText}</p>}
+          {failed && <p className="mb-1.5 break-words text-danger-text">{part.errorText}</p>}
           {done ? (
             <ToolOutput output={part.output} />
           ) : (
@@ -261,7 +264,7 @@ function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
 
 function Pre({ text }: { text: string }) {
   return (
-    <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-ink leading-snug">
+    <pre className="whitespace-pre-wrap break-words font-mono text-xs text-ink leading-snug">
       {text}
     </pre>
   )

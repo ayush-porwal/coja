@@ -13,6 +13,7 @@ import { usePersistedState } from '../pr/usePersistedState'
 import {
   applyTypography,
   readTypographyPrefs,
+  TYPOGRAPHY_DEFAULTS,
   type TypographyPrefs,
   writeTypographyPrefs,
 } from '../typography'
@@ -36,7 +37,7 @@ interface ThemeContextValue {
   appearance: 'light' | 'dark'
   /** `--trees-theme-*` styles for the FileTree host, from the active palette. */
   treeStyles: TreeThemeStyles
-  /** User typography preferences (families, sizes, ligatures). */
+  /** Code font size and line-height preferences. */
   typography: TypographyPrefs
   setTypography(next: TypographyPrefs): void
   resetTypography(): void
@@ -72,7 +73,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyTypography(next)
   }, [])
   const resetTypography = useCallback(() => {
-    setTypography(readTypographyPrefs())
+    setTypography({ ...TYPOGRAPHY_DEFAULTS })
   }, [setTypography])
   const treeStyles = useMemo(() => treeStylesFor(palette, appearance), [palette, appearance])
 

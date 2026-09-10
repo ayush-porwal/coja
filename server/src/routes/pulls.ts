@@ -4,6 +4,7 @@ import type { Forge, RepoRef } from '../forge/forge.js'
 import { getProject } from '../projects/store.js'
 import {
   isEmptyFilter,
+  isPrListState,
   type PrListFilter,
   type Project,
   type PullRequestDetail,
@@ -56,6 +57,11 @@ export function resolvePr(ctx: ServerContext, c: Context): PrScope {
 export function registerPullRoutes(app: Hono, ctx: ServerContext, deps: { forge: Forge }): void {
   const { forge } = deps
 
+  app.get('/api/projects/:projectId/contributors', async (c) => {
+    const { repo } = resolveProject(ctx, c)
+    return c.json(await forge.listContributors(repo))
+  })
+
   app.get(PRS_ROUTE, async (c) => {
     const { repo } = resolveProject(ctx, c)
     const parsed = Number.parseInt(c.req.query('page') ?? '1', 10)
@@ -64,9 +70,13 @@ export function registerPullRoutes(app: Hono, ctx: ServerContext, deps: { forge:
     // working for API callers that prefer structured input.
     const q = clean(c.req.query('q'))
     const draftParam = c.req.query('draft')
+    const stateParam = clean(c.req.query('state'))
+    if (!q && stateParam && !isPrListState(stateParam))
+      throw badRequest('invalid pull request state')
     const filter: PrListFilter = q
       ? parsePrQuery(q)
       : {
+          ...(isPrListState(stateParam) ? { state: stateParam } : {}),
           text: clean(c.req.query('text')),
           author: clean(c.req.query('author')),
           head: clean(c.req.query('head')),

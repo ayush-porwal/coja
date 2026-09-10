@@ -15,7 +15,7 @@
 
 const PR_SUMMARY = /* GraphQL */ `
 fragment PrSummary on PullRequest {
-  id number title url isDraft createdAt updatedAt
+  id number title url isDraft state createdAt updatedAt
   additions deletions changedFiles
   author { login avatarUrl }
   headRefName baseRefName headRefOid baseRefOid
@@ -75,11 +75,11 @@ const PAGE_INFO = 'pageInfo { hasNextPage endCursor }'
 export const VIEWER = /* GraphQL */ `
 query Viewer { viewer { login avatarUrl } }`
 
-/** Open PRs, most recently updated first. Variables: owner, name, login, after? */
+/** PRs by state, most recently updated first. Defaults to open PRs. */
 export const PR_LIST = /* GraphQL */ `
-query PrList($owner: String!, $name: String!, $login: String!, $after: String) {
+query PrList($owner: String!, $name: String!, $login: String!, $after: String, $states: [PullRequestState!] = [OPEN]) {
   repository(owner: $owner, name: $name) {
-    pullRequests(states: [OPEN], first: 100, after: $after,
+    pullRequests(states: $states, first: 100, after: $after,
                  orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
       ${PAGE_INFO}
@@ -343,6 +343,7 @@ export interface RawPrSummary {
   number: number
   title: string
   url: string
+  state?: 'OPEN' | 'CLOSED' | 'MERGED'
   isDraft: boolean
   createdAt: string
   updatedAt: string

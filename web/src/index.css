@@ -136,6 +136,18 @@
 @custom-variant dark (&:where([data-coja-appearance="dark"], [data-coja-appearance="dark"] *));
 
 @theme inline {
+  /* Shared UI scale: reading text 16px, controls 15px, metadata 13px.
+     Rem units preserve browser zoom without shrinking text on narrow screens. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.375rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-tree: 0.875rem;
+  --text-tree--line-height: 1.25rem;
+  --font-sans: var(--coja-ui-font);
+  --font-mono: var(--coja-code-font);
   --color-canvas: var(--coja-canvas);
   --color-chrome: var(--coja-chrome);
   --color-card: var(--coja-card);
@@ -144,6 +156,8 @@
   --color-panel-edge: var(--coja-panel-edge);
   --color-hover: var(--coja-hover);
   --color-active: var(--coja-active);
+  --color-skeleton: var(--coja-skeleton);
+  --color-scrim: var(--coja-scrim);
   --color-hover-alt: var(--coja-hover-alt);
   --color-ink: var(--coja-ink);
   --color-muted: var(--coja-muted);
@@ -156,13 +170,16 @@
   --color-accent-ink: var(--coja-accent-ink);
   --color-accent-soft: var(--coja-accent-soft);
   --color-ok: var(--coja-ok);
+  --color-ok-text: var(--coja-ok-text);
   --color-ok-soft: var(--coja-ok-soft);
   --color-danger: var(--coja-danger);
+  --color-danger-text: var(--coja-danger-text);
   --color-danger-soft: var(--coja-danger-soft);
   --color-ok-button: var(--coja-ok-button);
   --color-danger-button: var(--coja-danger-button);
   --color-status-button-ink: var(--coja-status-button-ink);
   --color-caution: var(--coja-caution);
+  --color-caution-text: var(--coja-caution-text);
   --color-caution-soft: var(--coja-caution-soft);
   --color-code: var(--coja-code);
   --color-code-ink: var(--coja-code-ink);
@@ -171,12 +188,16 @@
 :root {
   /* Typography preferences (web/src/typography.ts) — applied at runtime by
        applyTypography; these are first-paint defaults. */
-  --coja-ui-font: system-ui, sans-serif;
-  --coja-code-font: ui-monospace, monospace;
-  --coja-ui-size: 14px;
+  --coja-ui-font: "IBM Plex Sans", system-ui, sans-serif;
+  --coja-code-font: "Maple Mono NF", ui-monospace, monospace;
+  --coja-ui-size: 16px;
   --coja-code-size: 12.5px;
   --coja-code-line-height: 1.5;
   --coja-code-ligatures: normal;
+}
+
+:focus-visible {
+  outline-color: var(--coja-focus);
 }
 
 html {

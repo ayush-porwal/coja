@@ -1,5 +1,5 @@
 import { isToolUIPart } from 'ai'
-import { badRequest } from '../routes/http.js'
+import { badRequest } from './errors.js'
 import { REVIEW_TOOL_NAMES } from './tools.js'
 import type { ChatMessage } from './types.js'
 

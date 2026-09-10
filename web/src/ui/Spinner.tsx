@@ -15,7 +15,7 @@ export function Spinner({ size = 'sm', label, className }: SpinnerProps) {
         aria-hidden="true"
         viewBox="0 0 24 24"
         fill="none"
-        className={cn('animate-spin', size === 'sm' ? 'size-4' : 'size-6')}
+        className={cn('motion-safe:animate-spin', size === 'sm' ? 'size-4' : 'size-6')}
       >
         <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
         <path

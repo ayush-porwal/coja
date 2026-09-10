@@ -34,8 +34,8 @@ export function Overview({ detail }: OverviewProps) {
           <span>·</span>
           <span>
             {detail.changedFiles} {detail.changedFiles === 1 ? 'file' : 'files'},{' '}
-            <span className="text-ok">+{detail.additions}</span>{' '}
-            <span className="text-danger">−{detail.deletions}</span>
+            <span className="text-ok-text">+{detail.additions}</span>{' '}
+            <span className="text-danger-text">−{detail.deletions}</span>
           </span>
         </p>
       </header>
@@ -136,11 +136,11 @@ export function reviewStateLabel(state: ReviewState): string {
 function reviewStateClass(state: ReviewState): string {
   switch (state) {
     case 'APPROVED':
-      return 'border-ok bg-ok-soft text-ok'
+      return 'border-ok bg-ok-soft text-ok-text'
     case 'CHANGES_REQUESTED':
-      return 'border-danger bg-danger-soft text-danger'
+      return 'border-danger bg-danger-soft text-danger-text'
     case 'PENDING':
-      return 'border-caution bg-caution-soft text-caution'
+      return 'border-caution bg-caution-soft text-caution-text'
     default:
       return 'border-edge-strong text-muted'
   }
@@ -155,7 +155,7 @@ function ConversationEntry({ item }: { item: ConversationItem }) {
         <span className="font-medium text-ink">{item.author.login}</span>
         {item.kind === 'review' ? (
           <span
-            className={`rounded-full border px-1.5 py-px font-medium text-[11px] leading-4 ${reviewStateClass(item.state)}`}
+            className={`rounded-full border px-1.5 py-px font-medium text-xs leading-4 ${reviewStateClass(item.state)}`}
           >
             {reviewStateLabel(item.state)}
           </span>

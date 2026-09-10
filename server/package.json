@@ -37,7 +37,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/cli.ts --no-open",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node bin/coja.js"
   },
@@ -49,5 +49,8 @@
     "ai": "7.0.92",
     "hono": "4.13.7",
     "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@coja/agent": "workspace:^"
   }
 }

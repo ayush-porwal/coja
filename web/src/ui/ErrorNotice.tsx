@@ -14,10 +14,10 @@ export function ErrorNotice({ title, message, onRetry, retrying, className }: Er
   return (
     <div
       role="alert"
-      className={cn('rounded-lg border border-danger bg-danger-soft p-4 text-sm', className)}
+      className={cn('rounded-lg border border-danger bg-canvas p-4 text-sm', className)}
     >
-      <p className="font-medium text-danger">{title}</p>
-      {message && <p className="mt-1 break-words text-danger">{message}</p>}
+      <p className="font-medium text-danger-text">{title}</p>
+      {message && <p className="mt-1 break-words text-danger-text">{message}</p>}
       {onRetry && (
         <Button size="sm" variant="secondary" className="mt-3" onClick={onRetry} loading={retrying}>
           Retry

@@ -22,7 +22,7 @@ export function ContextChipView({ chip, onRemove }: ContextChipViewProps) {
   const [expanded, setExpanded] = useState(false)
   const label = chipLabel(chip)
   return (
-    <div className="max-w-full rounded-lg bg-active text-xs">
+    <div className="max-w-full rounded-lg border border-edge bg-canvas text-xs">
       <div className="flex items-center gap-1 px-2 py-1">
         <button
           type="button"
@@ -50,7 +50,7 @@ export function ContextChipView({ chip, onRemove }: ContextChipViewProps) {
       {expanded && (
         <pre
           data-testid="chip-excerpt"
-          className="max-h-64 overflow-auto rounded-b-lg border-edge border-t bg-canvas px-2 py-1.5 font-mono text-[11px] text-ink leading-snug"
+          className="max-h-64 overflow-auto rounded-b-lg border-edge border-t bg-canvas px-2 py-1.5 font-mono text-xs text-ink leading-snug"
         >
           {chip.text}
         </pre>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HttpError } from '../routes/http.js'
+import { HarnessInputError as HttpError } from './errors.js'
 import {
   assertKnownToolParts,
   ELIDED_TOOL_OUTPUT,
@@ -178,7 +178,7 @@ describe('assertKnownToolParts', () => {
     } catch (e) {
       caught = e
     }
-    expect(caught).toMatchObject({ status: 400, code: 'bad_request' })
+    expect(caught).toBeInstanceOf(HttpError)
 
     const dynamic = [
       {

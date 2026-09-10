@@ -17,8 +17,8 @@
 }
 
 .coja-markdown {
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 1rem;
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .coja-markdown > :first-child {
@@ -74,12 +74,12 @@
   font-family: var(--coja-code-font, ui-monospace, monospace);
   font-variant-ligatures: var(--coja-code-ligatures, normal);
   font-size: 0.85em;
-  background: color-mix(in lab, var(--coja-ink, #18181b) 8%, transparent);
+  background: var(--coja-canvas);
   padding: 0.1em 0.3em;
   border-radius: 4px;
 }
 .coja-markdown pre {
-  background: color-mix(in lab, var(--coja-ink, #18181b) 6%, transparent);
+  background: var(--coja-canvas);
   padding: 0.75rem;
   border-radius: 6px;
   overflow-x: auto;
@@ -120,6 +120,7 @@
   margin: 1rem 0;
 }
 .coja-markdown input[type="checkbox"] {
+  accent-color: var(--coja-accent);
   margin-right: 0.4rem;
   vertical-align: middle;
 }
