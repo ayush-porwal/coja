@@ -1,6 +1,6 @@
 {
   "name": "@ayushporwal/coja",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Local code review for GitHub pull requests, with an AI sidepanel that helps the human reviewer",
   "license": "MIT",
   "author": "Ayush Porwal <ayush.porwal@ef.com>",
