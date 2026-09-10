@@ -184,6 +184,8 @@ test('publish resumes GitHub completion without republishing and never tags a fa
   const originalFetch = globalThis.fetch
   const originalPath = process.env.PATH
   const originalRepository = process.env.GITHUB_REPOSITORY
+  const originalSha = process.env.GITHUB_SHA
+  const originalRef = process.env.GITHUB_REF
   const git = (...args) =>
     execFileSync('git', args, {
       cwd: directory,
@@ -220,6 +222,8 @@ test('publish resumes GitHub completion without republishing and never tags a fa
     }
     process.env.PATH = `${binaries}${path.delimiter}${originalPath}`
     process.env.GITHUB_REPOSITORY = 'fixture/coja'
+    process.env.GITHUB_SHA = 'workflow-run-sha'
+    process.env.GITHUB_REF = 'refs/heads/main'
     const tarball = path.join(directory, 'release.tgz')
     writeFileSync(tarball, 'validated artifact')
     const integrity = `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`
@@ -240,8 +244,8 @@ test('publish resumes GitHub completion without republishing and never tags a fa
     assert.equal(git('ls-remote', 'origin', 'refs/tags/0.0.3'), `${commit}\trefs/tags/0.0.3`)
     assert.equal(existsSync(releaseMarker), true)
     assert.deepEqual(JSON.parse(readFileSync(provenanceMarker, 'utf8')), {
-      sha: commit,
-      ref: 'refs/tags/0.0.3',
+      sha: 'workflow-run-sha',
+      ref: 'refs/heads/main',
       ...(process.env.GITHUB_WORKFLOW_REF ? { workflow: process.env.GITHUB_WORKFLOW_REF } : {}),
     })
     rmSync(releaseMarker) // Simulate missing GitHub release after successful npm publication.
@@ -255,6 +259,10 @@ test('publish resumes GitHub completion without republishing and never tags a fa
     process.env.PATH = originalPath
     if (originalRepository === undefined) delete process.env.GITHUB_REPOSITORY
     else process.env.GITHUB_REPOSITORY = originalRepository
+    if (originalSha === undefined) delete process.env.GITHUB_SHA
+    else process.env.GITHUB_SHA = originalSha
+    if (originalRef === undefined) delete process.env.GITHUB_REF
+    else process.env.GITHUB_REF = originalRef
     process.chdir(initialDirectory)
     rmSync(directory, { recursive: true, force: true })
   }

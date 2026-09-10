@@ -218,12 +218,7 @@ export async function publish(release) {
         '--registry',
         registry,
       ],
-      {
-        stdio: 'inherit',
-        // npm reads these for the attestation's source dependency. Keep the
-        // workflow/run identity unchanged; only the code snapshot differs.
-        env: { ...process.env, GITHUB_SHA: release.commit, GITHUB_REF: `refs/tags/${release.tag}` },
-      },
+      { stdio: 'inherit' },
     )
   }
   // Wait for both artifact and dist-tag propagation before announcing a release.
