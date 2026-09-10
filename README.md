@@ -48,7 +48,7 @@ pnpm build      # web → server/public, server → server/dist
 - `server/` — Hono server, git plumbing and the published CLI (`@ayushporwal/coja`)
 - `docs/` — design notes, progress log, decisions and screenshots
 
-Releases are automated: a PR that bumps `server/package.json` publishes the new version to npm when it merges to `main` (`.github/workflows/publish.yml`).
+Releases are manual: run the **Publish** GitHub action with a source commit and version. It validates the package, publishes it, and creates its tag and GitHub release. Merging PRs does not publish. See [the release guide](docs/releases.md) for dry runs, approval, and recovery.
 
 ## License
 
