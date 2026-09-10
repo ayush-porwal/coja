@@ -19,8 +19,9 @@ from `main` when a batch of changes is ready.
    release automatically. No version bump PR is needed.
 
 The workflow must be dispatched from `main`; choose the code to release with the
-**source** input rather than the workflow branch selector. Both dry runs and real
-releases currently use the existing `release` environment approval.
+**source** input rather than the workflow branch selector. Validation and dry runs
+use a read-only job without stored Git credentials or OIDC publishing permission.
+Only a real release starts the separate `release` environment approval job.
 
 ## Version and artifact identity
 
@@ -44,7 +45,11 @@ is the release approval. If npm's trusted-publisher configuration is restricted 
 staging, a package maintainer must allow direct publishing there before the first
 real release. No npm access token is needed and this PR does not change npm settings.
 
-GitHub Actions needs permission to write repository contents for tags/releases.
+Only the publish job has repository write and OIDC permissions. It downloads the
+validated artifact, verifies its source/version/commit and integrity, and recreates
+the release commit using workflow tooling. It does not install dependencies, build,
+or execute code from the selected snapshot. GitHub Actions needs permission to
+write repository contents in this job for tags/releases.
 The workflow does not merge PRs, move existing tags, or push commits to `main`.
 
 ## Recovery
@@ -62,5 +67,8 @@ release is created. If publishing succeeds but GitHub operations fail, npm remai
 published; retry as above. If a run is canceled, check npm and the run summary before
 choosing another version. A dry run creates no remote tags, releases, or packages.
 
-The final check waits up to about a minute for npm visibility. If it times out,
-retry with the original SHA/version after registry propagation completes.
+The final check waits up to about a minute for npm visibility and for `latest` to
+reach the requested version. A genuinely newer `latest` is preserved when recovering
+an older release. If the tag remains behind, the run fails before creating a GitHub
+release; retry with the original SHA/version after propagation. If it repeatedly
+fails, inspect and correct the npm dist-tag before retrying.

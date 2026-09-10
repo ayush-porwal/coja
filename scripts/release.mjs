@@ -150,6 +150,52 @@ export async function pack(release, artifactDirectory) {
   return { ...release, tarball, integrity, alreadyPublished }
 }
 
+export async function waitForPublication(
+  release,
+  {
+    readMetadata = registryMetadata,
+    sleep = () => new Promise((resolve) => setTimeout(resolve, 5000)),
+    attempts = 12,
+  } = {},
+) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const metadata = await readMetadata()
+    if (metadata.versions?.[release.version]) {
+      checkPublished(metadata, release.version, release.integrity)
+      const comparison = compareVersions(metadata['dist-tags'].latest, release.version)
+      if (comparison >= 0) return comparison === 0
+    }
+    if (attempt + 1 < attempts) await sleep()
+  }
+  throw new Error(
+    'npm has not confirmed the version and latest tag yet. Retry with the same source SHA and version; inspect the npm latest tag if this persists',
+  )
+}
+
+export function restore(release, artifactDirectory, expectedSource, expectedVersion) {
+  assert.equal(release.source, expectedSource, 'Artifact source differs from the validated source')
+  assert.equal(
+    release.version,
+    expectedVersion,
+    'Artifact version differs from the requested version',
+  )
+  assert.equal(release.tag, expectedVersion, 'Artifact tag differs from the requested version')
+  const prepared = prepare(expectedSource, expectedVersion)
+  assert.equal(
+    release.commit,
+    prepared.commit,
+    'Artifact release commit differs from the selected snapshot',
+  )
+  const tarball = path.join(artifactDirectory, `ayushporwal-coja-${expectedVersion}.tgz`)
+  const integrity = `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`
+  assert.equal(
+    integrity,
+    release.integrity,
+    'Downloaded tarball differs from the validated artifact',
+  )
+  return { ...prepared, tarball, integrity }
+}
+
 export async function publish(release) {
   assert.equal(git('rev-parse', 'HEAD'), release.commit)
   const integrity = `sha512-${createHash('sha512').update(readFileSync(release.tarball)).digest('base64')}`
@@ -180,23 +226,8 @@ export async function publish(release) {
       },
     )
   }
-  // Never announce a release until npm confirms the exact artifact is public.
-  let confirmed = false
-  let isLatest = false
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const metadata = await registryMetadata()
-    if (metadata.versions?.[release.version]) {
-      checkPublished(metadata, release.version, integrity)
-      confirmed = true
-      isLatest = metadata['dist-tags'].latest === release.version
-      break
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5000))
-  }
-  assert(
-    confirmed,
-    'npm has not confirmed the version yet. Re-run with the same source SHA and version',
-  )
+  // Wait for both artifact and dist-tag propagation before announcing a release.
+  const isLatest = await waitForPublication(release)
   if (!existing) git('tag', release.tag, release.commit)
   git('push', 'origin', `refs/tags/${release.tag}`)
   const repository = process.env.GITHUB_REPOSITORY
@@ -231,6 +262,8 @@ export async function main(args = process.argv.slice(2)) {
   if (command === 'prepare') {
     const release = prepare(process.env.RELEASE_SOURCE, process.env.RELEASE_VERSION)
     writeFileSync(metadataPath, JSON.stringify(release, null, 2))
+    if (process.env.GITHUB_OUTPUT)
+      appendFileSync(process.env.GITHUB_OUTPUT, `source=${release.source}\n`)
   } else if (command === 'pack') {
     const release = await pack(JSON.parse(readFileSync(metadataPath, 'utf8')), artifactDirectory)
     writeFileSync(metadataPath, JSON.stringify(release, null, 2))
@@ -239,10 +272,18 @@ export async function main(args = process.argv.slice(2)) {
         process.env.GITHUB_STEP_SUMMARY,
         `## Release ${release.version}\n\nSource: ${release.source}\n\nRelease commit: ${release.commit}\n\nTarball integrity: ${release.integrity}\n\nAlready published: ${release.alreadyPublished}\n\nDry run: ${process.env.DRY_RUN}\n`,
       )
+  } else if (command === 'restore') {
+    const release = restore(
+      JSON.parse(readFileSync(metadataPath, 'utf8')),
+      artifactDirectory,
+      process.env.EXPECTED_SOURCE,
+      process.env.RELEASE_VERSION,
+    )
+    writeFileSync(metadataPath, JSON.stringify(release, null, 2))
   } else if (command === 'publish') {
     await publish(JSON.parse(readFileSync(metadataPath, 'utf8')))
   } else {
-    throw new Error('Expected prepare, pack, or publish')
+    throw new Error('Expected prepare, pack, restore, or publish')
   }
 }
 

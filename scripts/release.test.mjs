@@ -20,7 +20,9 @@ import {
   pack,
   prepare,
   publish,
+  restore,
   validateVersion,
+  waitForPublication,
 } from './release.mjs'
 
 test('release versions are explicit stable semver, not shell commands or refs', () => {
@@ -75,6 +77,33 @@ test('selected main ancestor gets a reproducible version-only commit without mov
     assert.equal(git('diff', '--name-only', source, first.commit), 'server/package.json')
     assert.equal(JSON.parse(readFileSync('server/package.json', 'utf8')).version, '0.0.3')
     assert.equal(git('status', '--porcelain'), '')
+    const artifactDirectory = path.join(directory, '.git', 'release-artifacts')
+    mkdirSync(artifactDirectory)
+    const tarball = path.join(artifactDirectory, 'ayushporwal-coja-0.0.3.tgz')
+    writeFileSync(tarball, 'tested tarball')
+    const integrity = `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`
+    const artifact = { ...first, integrity, tarball: '/previous-runner/artifact.tgz' }
+    assert.deepEqual(restore(artifact, artifactDirectory, source, '0.0.3'), {
+      ...first,
+      integrity,
+      tarball,
+    })
+    assert.throws(
+      () => restore({ ...artifact, source: main }, artifactDirectory, source, '0.0.3'),
+      /Artifact source/,
+    )
+    assert.throws(
+      () => restore({ ...artifact, version: '0.0.4' }, artifactDirectory, source, '0.0.3'),
+      /Artifact version/,
+    )
+    assert.throws(
+      () => restore({ ...artifact, commit: main }, artifactDirectory, source, '0.0.3'),
+      /Artifact release commit/,
+    )
+    assert.throws(
+      () => restore({ ...artifact, integrity: 'bad' }, artifactDirectory, source, '0.0.3'),
+      /Downloaded tarball/,
+    )
     const retry = prepare(source, '0.0.3')
     assert.deepEqual(retry, first)
     git('tag', '0.0.3', first.commit)
@@ -229,4 +258,37 @@ test('publish resumes GitHub completion without republishing and never tags a fa
     process.chdir(initialDirectory)
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+test('publication waits for latest propagation and only accepts a genuinely newer latest', async () => {
+  const release = { version: '1.2.0', integrity: 'same' }
+  const metadata = (latest) => ({
+    versions: { '1.2.0': { dist: { integrity: 'same' } } },
+    'dist-tags': { latest },
+  })
+  const sequence = [metadata('1.1.0'), metadata('1.1.0'), metadata('1.2.0')]
+  let sleeps = 0
+  assert.equal(
+    await waitForPublication(release, {
+      readMetadata: async () => sequence.shift(),
+      sleep: async () => {
+        sleeps++
+      },
+      attempts: 3,
+    }),
+    true,
+  )
+  assert.equal(sleeps, 2)
+  assert.equal(
+    await waitForPublication(release, { readMetadata: async () => metadata('1.3.0') }),
+    false,
+  )
+  await assert.rejects(
+    waitForPublication(release, {
+      readMetadata: async () => metadata('1.1.0'),
+      sleep: async () => {},
+      attempts: 2,
+    }),
+    /latest tag/,
+  )
 })
